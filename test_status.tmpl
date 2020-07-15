@@ -1,0 +1,127 @@
+<h1>Test status</h1>
+<h2>Test Run Status</h2>
+{{if .Done}}
+	<p>This test is complete.</p>
+{{else}}
+	<p>This test is still running.</p>
+{{end}}
+
+<h2>Test Run Errors</h2>
+{{if .Err}}
+	<p>Error: {{.Err.Error}}</p>
+{{end}}
+
+<h2>Instructions</h2>
+{{if lt 0 (len .I.TestName)}}
+	<p>To continue testing, please follow these instructions:</p>
+	<p>Test: {{.I.TestName}}</p>
+	<p>Description: {{.I.Description}}</p>
+	<p>Instructions: {{.I.Instructions}}</p>
+<form action="/tests/instructions/{{.ID}}" method="post">
+	{{range $i, $ir := .I.Resp}}
+		<p><label for="{{$ir.Key}}">{{$ir.Label}}</label>
+		{{if eq $ir.Type "text_box"}}
+			<input type="text" name="{{$ir.Key}}" id="{{$ir.Key}}"></p>
+		{{else if eq $ir.Type "checkbox"}}
+			<input type="checkbox" name="{{$ir.Key}}" id="{{$ir.Key}}" value="true"></p>
+		{{else}}
+			Error: unhandled input type {{$ir.Type}}</p>
+		{{end}}
+	{{end}}
+	{{if .I.Skippable}}
+	<p><button type="submit" name="{{.I.TestName}}_skip" value="true">Skip</button></p>
+	{{end}}
+	<p><button type="submit" value="Respond">Respond</button></p>
+</form>
+{{end}}
+
+<h2>Pending Tests</h2>
+<p>N: {{len .Pending}}</p>
+{{if eq 0 (len .Pending)}}
+	<p>No pending tests</p>
+{{else}}
+<table>
+	<thead>
+	<tr>
+		<th>Test Name</th>
+		<th>Description</th>
+		<th>Kind</th>
+		<th>State</th>
+	</tr>
+	</thead>
+	<tbody>
+	{{range $i, $v := .Pending}}
+	<tr>
+		<td>{{$v.TestName}}</td>
+		<td>{{$v.Description}}</td>
+		<td>{{$v.SpecKind}}</td>
+		<td>{{$v.State}}</td>
+	</tr>
+	{{end}}
+	</tbody>
+</table>
+{{end}}
+
+<h2>Completed Tests</h2>
+<p>N: {{len .Completed}}</p>
+{{if eq 0 (len .Completed)}}
+	<p>No completed tests</p>
+{{else}}
+<table>
+	<thead>
+	<tr>
+		<th>Test Name</th>
+		<th>Description</th>
+		<th>Kind</th>
+		<th>State</th>
+	</tr>
+	</thead>
+	<tbody>
+	{{range $i, $v := .Completed}}
+	<tr>
+		<td>{{$v.TestName}}</td>
+		<td>{{$v.Description}}</td>
+		<td>{{$v.SpecKind}}</td>
+		<td>{{$v.State}}</td>
+	</tr>
+	{{end}}
+	</tbody>
+</table>
+{{end}}
+
+<h2>Test Results</h2>
+<p>N: {{len .Results}}</p>
+{{if eq 0 (len .Results)}}
+	<p>No test results</p>
+{{else}}
+<table>
+	<thead>
+	<tr>
+		<th>Test Name</th>
+		<th>Description</th>
+		<th>Kind</th>
+		<th>State</th>
+	</tr>
+	</thead>
+	<tbody>
+	{{range $i, $v := .Results}}
+	<tr>
+		<td>{{$v.TestName}}</td>
+		<td>{{$v.Description}}</td>
+		<td>{{$v.SpecKind}}</td>
+		<td>{{$v.State}}</td>
+	</tr>
+	{{end}}
+	</tbody>
+</table>
+<h3>Test Result Records</h3>
+	{{range $i, $v := .Results}}
+		<p>{{$v.TestName}}</p>
+		{{range $i, $e := $v.Records.Entries}}
+			<p>{{$e.T}}: {{$e.Msg}}</p>
+			{{if gt (len $e.M) 0}}
+				<p>{{$e.MString}}</p>
+			{{end}}
+		{{end}}
+	{{end}}
+{{end}}

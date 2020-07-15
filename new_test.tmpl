@@ -1,0 +1,10 @@
+<p>Start a new test</p>
+<form action="/tests/new" method="post">
+	<p><label for="remote_actor_iri">Remote actor ID</label>
+	<input type="text" name="remote_actor_iri" id="remote_actor_iri" required></p>
+	<p><label for="enable_social">Enable C2S Tests</label>
+	<input type="checkbox" name="enable_social" id="enable_social" value="true"></p>
+	<p><label for="enable_federating">Enable S2S Tests</label>
+	<input type="checkbox" name="enable_federating" id="enable_federating" value="true"></p>
+	<p><input type="submit" value="Start Test"></p>
+</form>
