@@ -41,11 +41,14 @@ type Result struct {
 type instructionResponseType string
 
 const (
-	textBoxInstructionResponse  instructionResponseType = "text_box"
-	checkBoxInstructionResponse instructionResponseType = "checkbox"
+	textBoxInstructionResponse   instructionResponseType = "text_box"
+	checkBoxInstructionResponse                          = "checkbox"
+	labelOnlyInstructionResponse                         = "label_only"
 )
 
+// Key IDs of user-submitted responses to instructions.
 const (
+	// Common Tests
 	kSkipKeyIdSuffix                   = "_skip"
 	kDereferenceIRIKeyId               = "instruction_key_dereference_iri"
 	kTombstoneIRIKeyId                 = "instruction_key_tombstone_iri"
@@ -53,6 +56,9 @@ const (
 	kNeverExistedIRIKeyId              = "instruction_key_never_existed_iri"
 	kPrivateIRIKeyId                   = "instruction_key_private_object_iri"
 	kDisclosesPrivateIRIExistenceKeyId = "instruction_key_discloses_private_object_existence"
+	// Federated Tests
+	kDeliveredFederatedActivity1KeyId = "instruction_key_federated_activity_1"
+	kFederatedOutboxIRIKeyID          = "auto_listen_key_federated_outbox_iri"
 )
 
 type instructionResponse struct {
@@ -69,6 +75,10 @@ type Instruction struct {
 	Resp         []instructionResponse
 }
 
+type APHooks interface {
+	ExpectFederatedCoreActivity(keyID string)
+}
+
 type TestRunnerContext struct {
 	// Set by the server
 	TestRemoteActorID *url.URL
@@ -81,7 +91,8 @@ type TestRunnerContext struct {
 	TestActor3        *url.URL
 	TestActor4        *url.URL
 	// Set by the TestRunner
-	C context.Context
+	C   context.Context
+	APH APHooks
 	// Read and Written by Tests
 	InboxID *url.URL
 	// Used for coordinating receiving instructions
@@ -366,7 +377,12 @@ func (b *baseTest) helperToActor(ctx *TestRunnerContext, t vocab.Type) (done boo
 	return
 }
 
-func (b *baseTest) helperToOrderedCollectionOrPage(ctx *TestRunnerContext, t vocab.Type) (done bool, oc vocab.Type) {
+type itemser interface {
+	vocab.Type
+	GetActivityStreamsOrderedItems() vocab.ActivityStreamsOrderedItemsProperty
+}
+
+func (b *baseTest) helperToOrderedCollectionOrPage(ctx *TestRunnerContext, t vocab.Type) (done bool, oc itemser) {
 	done = false
 	tr, err := streams.NewTypeResolver(func(c context.Context, ord vocab.ActivityStreamsOrderedCollection) error {
 		oc = ord
@@ -416,6 +432,7 @@ func (b *baseTest) helperToTombstone(ctx *TestRunnerContext, t vocab.Type) (done
 /* TEST HELPERS & CONSTANTS */
 
 const (
+	// Common Tests
 	kGETActorTestName                                    = "GET Actor"
 	kGETActorInboxTestName                               = "GET Actor Inbox"
 	kActorInboxIsOrderedCollectionTestName               = "Actor Inbox Is OrderedCollection"
@@ -431,6 +448,10 @@ const (
 	kServerPrivateObjectIRI                              = "Server Handles Serving Access-Controlled Objects"
 	kServerResponds403ForbiddenForPrivateObject          = "Server Responds With 403 Forbidden For Access-Controlled Objects"
 	kServerResponds404NotFoundForPrivateObject           = "Server Responds With 404 Not Found For Access-Controlled Objects"
+	// Federated Tests
+	kServerDeliversOutboxActivitiesObtainPeerActivity = "Delivers All Activities Posted In The Outbox - Obtain Peer Activity"
+	kServerDeliversOutboxActivities                   = "Delivers All Activities Posted In The Outbox"
+	kGETActorOutboxTestName                           = "GET Actor Outbox"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -479,6 +500,16 @@ func hasAnyInstructionKey(ctx *TestRunnerContext, test string, keyID string, ski
 
 func hasSkippedTestName(ctx *TestRunnerContext, test string) bool {
 	return ctx.C.Value(test+kSkipKeyIdSuffix) != nil
+}
+
+func getInstructionResponseAsDirectIRI(ctx *TestRunnerContext, keyID string) (iri *url.URL, err error) {
+	var ok bool
+	iri, ok = ctx.C.Value(keyID).(*url.URL)
+	if !ok {
+		err = fmt.Errorf("cannot get instruction key as *url.URL: %s", keyID)
+		return
+	}
+	return
 }
 
 func getInstructionResponseAsOnlyIRI(ctx *TestRunnerContext, keyID string) (iri *url.URL, err error) {
@@ -580,13 +611,6 @@ func newCommonTests() []Test {
 					return true
 				}
 				ptp := NewPlainTransport(me.R)
-				/*ctx.AM.AddContextInfoForTest(ctx)
-				ptp, err := HTTPSigTransport(ctx.C, ctx.AM)
-				if err != nil {
-					me.R.Add("Could not create http signature transport: ", err)
-					me.State = TestResultFail
-					return true
-				}*/
 				me.R.Add(fmt.Sprintf("About to dereference inbox at %s", ctx.InboxID))
 				done, t := me.helperDereference(ctx, ctx.InboxID, ptp)
 				if done {
@@ -1121,23 +1145,278 @@ func newCommonTests() []Test {
 				return true
 			},
 		},
-
-		/* BREAK THESE DOWN MORE*/
-
-		// TODO: Non-Normative: By default, implementation does not make HTTP requests to localhost when delivering Activities
-		// TODO: Non-Normative: Implementation applies a whitelist of allowed URI protocols before issuing requests, e.g. for inbox delivery
-		// TODO: Non-Normative: Server filters incoming content both by local untrusted users and any remote users through some sort of spam filter
 	}
 }
 
 /* FEDERATING TESTS */
 
 func newFederatingTests() []Test {
-	// TODO: Port more tests here
+	return []Test{
+		// Delivers All Activities Posted In The Outbox
+		//
+		// Requires:
+		// - Remote actor in the Database
+		// Side Effects:
+		// - Populates the delivered activity in the context
+		&baseTest{
+			TestName:    kServerDeliversOutboxActivities,
+			Description: "Performs delivery on all Activities posted to the outbox",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				if !hasAnyRanResult(kGETActorTestName, existing) || !hasTestPass(kGETActorTestName, existing) {
+					return nil
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversOutboxActivities, kDeliveredFederatedActivity1KeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivity(kDeliveredFederatedActivity1KeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send an activity from %s to the test actor %s", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:   kDeliveredFederatedActivity1KeyId,
+							Type:  labelOnlyInstructionResponse,
+							Label: "IRI of public ActivityStreams content",
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kGETActorTestName, existing) {
+					return false
+				} else if !hasTestPass(kGETActorTestName, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
+					me.State = TestResultInconclusive
+					return true
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversOutboxActivities, kDeliveredFederatedActivity1KeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDeliversOutboxActivities) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kDeliveredFederatedActivity1KeyId)
+				if err != nil {
+					me.R.Add("Could not resolve the ID of the activity: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				me.R.Add(fmt.Sprintf("Obtained the federated activity %s", iri))
+				me.State = TestResultPass
+				return true
+			},
+		},
 
-	// TODO: Should: Server Filters Inbox Based On Federating Requester's Permission
-	// TODO: Non-normative: Server verifies that the new content is really posted by the actor indicated in Objects received in inbox
-	return nil
+		// Delivers All Activities Posted In The Outbox - Obtain Peer's Activity
+		//
+		// Requires:
+		// - delivered activity populated in the context
+		// Side Effects:
+		// - N/a
+		&baseTest{
+			TestName:    kServerDeliversOutboxActivitiesObtainPeerActivity,
+			Description: "Performs delivery on all Activities posted to the outbox",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				if !hasAnyRanResult(kGETActorTestName, existing) || !hasTestPass(kGETActorTestName, existing) {
+					return nil
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversOutboxActivitiesObtainPeerActivity, kDeliveredFederatedActivity1KeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivity(kDeliveredFederatedActivity1KeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send an activity from %s to the test actor %s", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:   kDeliveredFederatedActivity1KeyId,
+							Type:  labelOnlyInstructionResponse,
+							Label: "IRI of public ActivityStreams content",
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				// Check dependencies
+				if !hasAnyRanResult(kGETActorTestName, existing) {
+					return false
+				} else if !hasTestPass(kGETActorTestName, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
+					me.State = TestResultInconclusive
+					return true
+				}
+				// Check whether this test's instruction results are there or it was skipped
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversOutboxActivitiesObtainPeerActivity, kDeliveredFederatedActivity1KeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDeliversOutboxActivitiesObtainPeerActivity) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				// Obtain the ID of the federated activity delivered to us
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kDeliveredFederatedActivity1KeyId)
+				if err != nil {
+					me.R.Add("Could not resolve the instruction response IRI: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				me.R.Add(fmt.Sprintf("Obtained the federated activity %s", iri))
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// GET Actor Outbox
+		//
+		// Requires:
+		// - Actor in the Database
+		// - Peer actor sent activity to us
+		// Side Effects:
+		// - Adds outbox to the Database
+		// - Sets outbox ID onto the context
+		&baseTest{
+			TestName:    kGETActorOutboxTestName,
+			Description: "Server responds to GET request at Actor's Outbox URL",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kGETActorTestName, existing) {
+					return false
+				} else if !hasAnyRanResult(kServerDeliversOutboxActivitiesObtainPeerActivity, existing) {
+					return false
+				} else if !hasTestPass(kGETActorTestName, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
+					me.State = TestResultInconclusive
+					return true
+				} else if !hasTestPass(kServerDeliversOutboxActivitiesObtainPeerActivity, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kServerDeliversOutboxActivitiesObtainPeerActivity)
+					me.State = TestResultInconclusive
+					return true
+				}
+				done, at := me.helperMustGetFromDatabase(ctx, ctx.TestRemoteActorID)
+				if done {
+					return true
+				}
+				done, actor := me.helperToActor(ctx, at)
+				if done {
+					return true
+				}
+				outbox := actor.GetActivityStreamsOutbox()
+				if outbox == nil {
+					me.R.Add("Actor at IRI does not have an outbox: ", ctx.TestRemoteActorID)
+					me.State = TestResultFail
+					return true
+				}
+				outboxIRI, err := pub.ToId(outbox)
+				if err != nil {
+					me.R.Add("Could not determine the ID of the actor's outbox: ", err)
+					me.State = TestResultFail
+					return true
+				}
+				ctx.C = context.WithValue(ctx.C, kFederatedOutboxIRIKeyID, outboxIRI)
+				ptp := NewPlainTransport(me.R)
+				me.R.Add(fmt.Sprintf("About to dereference outbox at %s", outboxIRI))
+				done, t := me.helperDereference(ctx, outboxIRI, ptp)
+				if done {
+					return true
+				}
+				if me.helperMustAddToDatabase(ctx, outboxIRI, t) {
+					return true
+				}
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Delivers All Activities Posted In The Outbox
+		//
+		// Requires:
+		// - Peer actor sent activity to us
+		// - Outbox in the Database
+		// - Outbox ID in the context
+		// Side Effects:
+		// - N/a
+		&baseTest{
+			TestName:    kServerDeliversOutboxActivities,
+			Description: "Performs delivery on all Activities posted to the outbox",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				// Check dependencies
+				if !hasAnyRanResult(kGETActorOutboxTestName, existing) {
+					return false
+				} else if !hasAnyRanResult(kServerDeliversOutboxActivitiesObtainPeerActivity, existing) {
+					return false
+				} else if !hasTestPass(kGETActorOutboxTestName, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETActorOutboxTestName)
+					me.State = TestResultInconclusive
+					return true
+				} else if !hasTestPass(kServerDeliversOutboxActivitiesObtainPeerActivity, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kServerDeliversOutboxActivitiesObtainPeerActivity)
+					me.State = TestResultInconclusive
+					return true
+				}
+				// Obtain the federated activity ID delivered to us
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kDeliveredFederatedActivity1KeyId)
+				if err != nil {
+					me.R.Add("Could not resolve the ID of the activity: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				// Now obtain the outbox that was fetched from the federated actor
+				outboxIRI, err := getInstructionResponseAsDirectIRI(ctx, kFederatedOutboxIRIKeyID)
+				if err != nil {
+					me.R.Add("Could not resolve the ID of the outbox fetched: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				done, at := me.helperMustGetFromDatabase(ctx, outboxIRI)
+				if done {
+					return true
+				}
+				me.R.Add("Found outbox in database", outboxIRI)
+				done, oc := me.helperToOrderedCollectionOrPage(ctx, at)
+				if done {
+					return true
+				}
+				found := false
+				orderedItemsProp := oc.GetActivityStreamsOrderedItems()
+				if orderedItemsProp != nil {
+					for iter := orderedItemsProp.Begin(); iter != orderedItemsProp.End(); iter = iter.Next() {
+						oiIRI, err := pub.ToId(iter)
+						if err != nil {
+							me.R.Add("Cannot get ID of element in Outbox", outboxIRI)
+							me.State = TestResultFail
+							return true
+						}
+						if oiIRI.String() == iri.String() {
+							found = true
+							break
+						}
+					}
+				}
+				if !found {
+					me.R.Add("Could not find the activity ID in the outbox", iri, outboxIRI)
+					me.State = TestResultFail
+				} else {
+					me.R.Add("Found the activity ID in the outbox", iri, outboxIRI)
+					me.State = TestResultPass
+				}
+				return true
+			},
+		},
+
+		// TODO: Non-Normative: Server filters incoming content both by local untrusted users and any remote users through some sort of spam filter
+		// TODO: Non-Normative: By default, implementation does not make HTTP requests to localhost when delivering Activities
+		// TODO: Non-Normative: Implementation applies a whitelist of allowed URI protocols before issuing requests, e.g. for inbox delivery
+		// TODO: Should: Server Filters Inbox Based On Federating Requester's Permission
+		// TODO: Non-normative: Server verifies that the new content is really posted by the actor indicated in Objects received in inbox
+	}
 }
 
 /* SOCIAL TESTS */
@@ -1145,6 +1424,8 @@ func newFederatingTests() []Test {
 func newSocialTests() []Test {
 	// TODO: Port more tests here
 
+	// TODO: Non-Normative: Server filters incoming content both by local untrusted users and any remote users through some sort of spam filter
+	// TODO: Non-Normative: By default, implementation does not make HTTP requests to localhost when delivering Activities
 	// TODO: Should: Server Filters Inbox Based On Social Requester's Permission
 	// TODO: Non-normative: Server verifies that the new content is really posted by the actor indicated in Objects received in outbox
 	return nil

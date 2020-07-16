@@ -24,6 +24,8 @@
 			<input type="text" name="{{$ir.Key}}" id="{{$ir.Key}}"></p>
 		{{else if eq $ir.Type "checkbox"}}
 			<input type="checkbox" name="{{$ir.Key}}" id="{{$ir.Key}}" value="true"></p>
+		{{else if eq $ir.Type "label_only"}}
+			</p>
 		{{else}}
 			Error: unhandled input type {{$ir.Type}}</p>
 		{{end}}

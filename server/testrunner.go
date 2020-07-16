@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sync"
 
 	"github.com/go-fed/activity/pub"
 	"github.com/go-fed/activity/streams/vocab"
@@ -23,7 +24,12 @@ type TestRunner struct {
 	completed []Test
 	results   []Result
 	sh        ServerHandler
-	cancel    context.CancelFunc
+	// Set once test is running
+	cancel context.CancelFunc
+	ctx    *TestRunnerContext
+	// Flag bits used for synchronizing AP hook behaviors
+	hookSyncMu                 sync.Mutex
+	awaitFederatedCoreActivity string
 }
 
 func NewTestRunner(sh ServerHandler, tests []Test) *TestRunner {
@@ -40,7 +46,9 @@ func (tr *TestRunner) Run(ctx *TestRunnerContext) {
 	if tr.cancel != nil {
 		return
 	}
+	tr.ctx = ctx
 	ctx.C, tr.cancel = context.WithCancel(context.Background())
+	ctx.APH = tr
 	go func() {
 		defer func() {
 			tr.sh.MarkDone()
@@ -115,6 +123,12 @@ func (tr *TestRunner) Stop() {
 	}
 	tr.cancel()
 	tr.cancel = nil
+}
+
+func (tr *TestRunner) ExpectFederatedCoreActivity(keyID string) {
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	tr.awaitFederatedCoreActivity = keyID
 }
 
 func (tr *TestRunner) LogAuthenticateGetInbox(c context.Context, w http.ResponseWriter, r *http.Request, authenticated bool, err error) {
@@ -195,38 +209,155 @@ func (tr *TestRunner) LogBlocked(c context.Context, actorIRIs []*url.URL, blocke
 
 func (tr *TestRunner) LogFederatingCreate(c context.Context, v vocab.ActivityStreamsCreate) {
 	tr.raw.Add("LogFederatingCreate", c, v)
+	iri, err := pub.GetId(v)
+	if err != nil {
+		tr.raw.Add("Could not get Create iri: " + err.Error())
+		return
+	}
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	if len(tr.awaitFederatedCoreActivity) > 0 {
+		key := tr.awaitFederatedCoreActivity
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivity = ""
+		tr.ctx.InstructionDone()
+	}
 }
 
 func (tr *TestRunner) LogFederatingUpdate(c context.Context, v vocab.ActivityStreamsUpdate) {
 	tr.raw.Add("LogFederatingUpdate", c, v)
+	iri, err := pub.GetId(v)
+	if err != nil {
+		tr.raw.Add("Could not get Update iri: " + err.Error())
+		return
+	}
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	if len(tr.awaitFederatedCoreActivity) > 0 {
+		key := tr.awaitFederatedCoreActivity
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivity = ""
+		tr.ctx.InstructionDone()
+	}
 }
 
 func (tr *TestRunner) LogFederatingDelete(c context.Context, v vocab.ActivityStreamsDelete) {
 	tr.raw.Add("LogFederatingDelete", c, v)
+	iri, err := pub.GetId(v)
+	if err != nil {
+		tr.raw.Add("Could not get Delete iri: " + err.Error())
+		return
+	}
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	if len(tr.awaitFederatedCoreActivity) > 0 {
+		key := tr.awaitFederatedCoreActivity
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivity = ""
+		tr.ctx.InstructionDone()
+	}
 }
 
 func (tr *TestRunner) LogFederatingFollow(c context.Context, v vocab.ActivityStreamsFollow) {
 	tr.raw.Add("LogFederatingFollow", c, v)
+	iri, err := pub.GetId(v)
+	if err != nil {
+		tr.raw.Add("Could not get Follow iri: " + err.Error())
+		return
+	}
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	if len(tr.awaitFederatedCoreActivity) > 0 {
+		key := tr.awaitFederatedCoreActivity
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivity = ""
+		tr.ctx.InstructionDone()
+	}
 }
 
 func (tr *TestRunner) LogFederatingAdd(c context.Context, v vocab.ActivityStreamsAdd) {
 	tr.raw.Add("LogFederatingAdd", c, v)
+	iri, err := pub.GetId(v)
+	if err != nil {
+		tr.raw.Add("Could not get Add iri: " + err.Error())
+		return
+	}
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	if len(tr.awaitFederatedCoreActivity) > 0 {
+		key := tr.awaitFederatedCoreActivity
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivity = ""
+		tr.ctx.InstructionDone()
+	}
 }
 
 func (tr *TestRunner) LogFederatingRemove(c context.Context, v vocab.ActivityStreamsRemove) {
 	tr.raw.Add("LogFederatingRemove", c, v)
+	iri, err := pub.GetId(v)
+	if err != nil {
+		tr.raw.Add("Could not get Remove iri: " + err.Error())
+		return
+	}
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	if len(tr.awaitFederatedCoreActivity) > 0 {
+		key := tr.awaitFederatedCoreActivity
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivity = ""
+		tr.ctx.InstructionDone()
+	}
 }
 
 func (tr *TestRunner) LogFederatingLike(c context.Context, v vocab.ActivityStreamsLike) {
 	tr.raw.Add("LogFederatingLike", c, v)
+	iri, err := pub.GetId(v)
+	if err != nil {
+		tr.raw.Add("Could not get Like iri: " + err.Error())
+		return
+	}
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	if len(tr.awaitFederatedCoreActivity) > 0 {
+		key := tr.awaitFederatedCoreActivity
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivity = ""
+		tr.ctx.InstructionDone()
+	}
 }
 
 func (tr *TestRunner) LogFederatingUndo(c context.Context, v vocab.ActivityStreamsUndo) {
 	tr.raw.Add("LogFederatingUndo", c, v)
+	iri, err := pub.GetId(v)
+	if err != nil {
+		tr.raw.Add("Could not get Undo iri: " + err.Error())
+		return
+	}
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	if len(tr.awaitFederatedCoreActivity) > 0 {
+		key := tr.awaitFederatedCoreActivity
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivity = ""
+		tr.ctx.InstructionDone()
+	}
 }
 
 func (tr *TestRunner) LogFederatingBlock(c context.Context, v vocab.ActivityStreamsBlock) {
 	tr.raw.Add("LogFederatingBlock", c, v)
+	iri, err := pub.GetId(v)
+	if err != nil {
+		tr.raw.Add("Could not get Block iri: " + err.Error())
+		return
+	}
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	if len(tr.awaitFederatedCoreActivity) > 0 {
+		key := tr.awaitFederatedCoreActivity
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivity = ""
+		tr.ctx.InstructionDone()
+	}
 }
 
 func (tr *TestRunner) LogFilterForwarding(c context.Context, potentialRecipients []*url.URL, activity pub.Activity, filteredRecipients []*url.URL, err error) {
