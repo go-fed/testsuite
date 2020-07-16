@@ -46,11 +46,13 @@ const (
 )
 
 const (
-	kSkipKeyIdSuffix      = "_skip"
-	kDereferenceIRIKeyId  = "instruction_key_dereference_iri"
-	kTombstoneIRIKeyId    = "instruction_key_tombstone_iri"
-	kUsingTombstonesKeyId = "instruction_key_using_tombstones"
-	kNeverExistedIRIKeyId = "instruction_key_never_existed_iri"
+	kSkipKeyIdSuffix                   = "_skip"
+	kDereferenceIRIKeyId               = "instruction_key_dereference_iri"
+	kTombstoneIRIKeyId                 = "instruction_key_tombstone_iri"
+	kUsingTombstonesKeyId              = "instruction_key_using_tombstones"
+	kNeverExistedIRIKeyId              = "instruction_key_never_existed_iri"
+	kPrivateIRIKeyId                   = "instruction_key_private_object_iri"
+	kDisclosesPrivateIRIExistenceKeyId = "instruction_key_discloses_private_object_existence"
 )
 
 type instructionResponse struct {
@@ -294,6 +296,25 @@ func (b *baseTest) helperDereferenceNotFound(ctx *TestRunnerContext, iri *url.UR
 	return
 }
 
+func (b *baseTest) helperDereferenceForbidden(ctx *TestRunnerContext, iri *url.URL, tp *PlainTransport) (done bool) {
+	done = false
+	b.R.Add("Attempting to dereference the IRI", iri)
+	_, code, err := tp.DereferenceWithStatusCode(ctx.C, iri)
+	if err != nil {
+		b.R.Add("Dereference had error", err)
+		b.State = TestResultFail
+		done = true
+		return
+	} else if code != http.StatusForbidden {
+		b.R.Add(fmt.Sprintf("Dereference expected 403, got %d", code))
+		b.State = TestResultFail
+		done = true
+		return
+	}
+	b.R.Add("Successfully called Dereference and got 403")
+	return
+}
+
 type actorWrapper interface {
 	GetActivityStreamsInbox() vocab.ActivityStreamsInboxProperty
 	SetActivityStreamsInbox(i vocab.ActivityStreamsInboxProperty)
@@ -405,8 +426,11 @@ const (
 	kServerTombstonesDeletedObjects                      = "Server Represents Deleted Objects With Tombstone"
 	kServerDereferencesTombstoneWithGoneStatus           = "Server Responds With 410 Gone With Tombstone"
 	kServerDereferencesNotFoundWhenNoTombstones          = "Server Responds With 404 Not Found When Not Using Tombstones"
-kServerObjectNeverExisted = "Server Handles When Object Never Existed"
-kServer404NotFoundNeverExisted = "Server Responds With 404 Not Found When Object Never Existed"
+	kServerObjectNeverExisted                            = "Server Handles When Object Never Existed"
+	kServer404NotFoundNeverExisted                       = "Server Responds With 404 Not Found When Object Never Existed"
+	kServerPrivateObjectIRI                              = "Server Handles Serving Access-Controlled Objects"
+	kServerResponds403ForbiddenForPrivateObject          = "Server Responds With 403 Forbidden For Access-Controlled Objects"
+	kServerResponds404NotFoundForPrivateObject           = "Server Responds With 404 Not Found For Access-Controlled Objects"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -881,7 +905,7 @@ func newCommonTests() []Test {
 			},
 		},
 
-		// Server Handles When Object Never Existed"
+		// Server Handles When Object Never Existed
 		//
 		// Requires:
 		// - N/A
@@ -928,7 +952,7 @@ func newCommonTests() []Test {
 			},
 		},
 
-		// Server Responds 404 Gone For Objects That Never Existed 
+		// Server Responds 404 Gone For Objects That Never Existed
 		//
 		// Requires:
 		// - Populates the context with a never-existed IRI value
@@ -964,9 +988,139 @@ func newCommonTests() []Test {
 			},
 		},
 
-		// TODO: Should: Instructions to get a private IRI & whether 403 or 404
-		// TODO: Should: Run Test for 404 status
-		// TODO: Should: Run Test for 403 status
+		// Server Handles Serving Private IRI
+		//
+		// Requires:
+		// - N/A
+		// Side Effects:
+		// - Populates the context with a private IRI value
+		// - Populates the context with whether server will acknowledge its existence
+		&baseTest{
+			TestName:    kServerPrivateObjectIRI,
+			Description: "Responds for Object URIs that have never existed",
+			SpecKind:    TestSpecKindShould,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				const skippable = true
+				if !hasAnyInstructionKeys(ctx, kServerPrivateObjectIRI, []string{kPrivateIRIKeyId, kDisclosesPrivateIRIExistenceKeyId}, skippable) {
+					return &Instruction{
+						Instructions: "Please enter an IRI of an object that is private, and whether the server will acknowledge its existence when failing to properly access it",
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:   kPrivateIRIKeyId,
+							Type:  textBoxInstructionResponse,
+							Label: "IRI of content that is private",
+						}, {
+							Key:   kDisclosesPrivateIRIExistenceKeyId,
+							Type:  checkBoxInstructionResponse,
+							Label: "Server will respond with a 403 Forbidden response for unauthorized access",
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				const skippable = true
+				if !hasAnyInstructionKeys(ctx, kServerPrivateObjectIRI, []string{kPrivateIRIKeyId, kDisclosesPrivateIRIExistenceKeyId}, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerPrivateObjectIRI) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				iri, err := getInstructionResponseAsOnlyIRI(ctx, kPrivateIRIKeyId)
+				if err != nil {
+					me.R.Add("Could not resolve the ID of the instruction: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				me.R.Add(fmt.Sprintf("Obtained IRI of the private object at %s", iri))
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Server Responds With 403 Forbidden For Access-Controlled Objects
+		//
+		// Requires:
+		// - context has a private IRI value
+		// - context has: server will acknowledge private objects' existence
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerResponds403ForbiddenForPrivateObject,
+			Description: "Respond with 403 Forbidden status code when fetching access-controlled object",
+			SpecKind:    TestSpecKindShould,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kServerPrivateObjectIRI, existing) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerPrivateObjectIRI) {
+					me.R.Add("Skipping: skipped " + kServerPrivateObjectIRI)
+					me.State = TestResultInconclusive
+					return true
+				} else if !isInstructionResponseTrue(ctx, kDisclosesPrivateIRIExistenceKeyId) {
+					me.R.Add("Skipping: server will not acknowledge existence")
+					me.State = TestResultInconclusive
+					return true
+				}
+				iri, err := getInstructionResponseAsOnlyIRI(ctx, kPrivateIRIKeyId)
+				if err != nil {
+					me.R.Add("Could not resolve the ID of the instruction: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				ptp := NewPlainTransport(me.R)
+				me.R.Add(fmt.Sprintf("About to dereference object at %s", iri))
+				done := me.helperDereferenceForbidden(ctx, iri, ptp)
+				if done {
+					return true
+				}
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Server Responds With 404 Not Found For Access-Controlled Objects
+		//
+		// Requires:
+		// - context has a private IRI value
+		// - context has: server will NOT acknowledge private objects' existence
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerResponds404NotFoundForPrivateObject,
+			Description: "Respond with 404 Not Found status code when fetching access-controlled object",
+			SpecKind:    TestSpecKindShould,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kServerPrivateObjectIRI, existing) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerPrivateObjectIRI) {
+					me.R.Add("Skipping: skipped " + kServerPrivateObjectIRI)
+					me.State = TestResultInconclusive
+					return true
+				} else if isInstructionResponseTrue(ctx, kDisclosesPrivateIRIExistenceKeyId) {
+					me.R.Add("Skipping: server will acknowledge existence")
+					me.State = TestResultInconclusive
+					return true
+				}
+				iri, err := getInstructionResponseAsOnlyIRI(ctx, kPrivateIRIKeyId)
+				if err != nil {
+					me.R.Add("Could not resolve the ID of the instruction: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				ptp := NewPlainTransport(me.R)
+				me.R.Add(fmt.Sprintf("About to dereference object at %s", iri))
+				done := me.helperDereferenceNotFound(ctx, iri, ptp)
+				if done {
+					return true
+				}
+				me.State = TestResultPass
+				return true
+			},
+		},
 
 		/* BREAK THESE DOWN MORE*/
 
