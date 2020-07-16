@@ -50,6 +50,7 @@ const (
 	kDereferenceIRIKeyId  = "instruction_key_dereference_iri"
 	kTombstoneIRIKeyId    = "instruction_key_tombstone_iri"
 	kUsingTombstonesKeyId = "instruction_key_using_tombstones"
+	kNeverExistedIRIKeyId = "instruction_key_never_existed_iri"
 )
 
 type instructionResponse struct {
@@ -404,6 +405,8 @@ const (
 	kServerTombstonesDeletedObjects                      = "Server Represents Deleted Objects With Tombstone"
 	kServerDereferencesTombstoneWithGoneStatus           = "Server Responds With 410 Gone With Tombstone"
 	kServerDereferencesNotFoundWhenNoTombstones          = "Server Responds With 404 Not Found When Not Using Tombstones"
+kServerObjectNeverExisted = "Server Handles When Object Never Existed"
+kServer404NotFoundNeverExisted = "Server Responds With 404 Not Found When Object Never Existed"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -878,16 +881,88 @@ func newCommonTests() []Test {
 			},
 		},
 
-		// Server Filters Inbox Based On Requester's Permission
+		// Server Handles When Object Never Existed"
 		//
 		// Requires:
-		// - inbox in the Database & is an OrderedCollection
-		// - TODO: Something else?
+		// - N/A
+		// Side Effects:
+		// - Populates the context with a never-existed IRI value
+		&baseTest{
+			TestName:    kServerObjectNeverExisted,
+			Description: "Responds for Object URIs that have never existed",
+			SpecKind:    TestSpecKindShould,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerObjectNeverExisted, kNeverExistedIRIKeyId, skippable) {
+					return &Instruction{
+						Instructions: "Please enter an IRI of an object that has never existed",
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:   kNeverExistedIRIKeyId,
+							Type:  textBoxInstructionResponse,
+							Label: "IRI of content that has never existed",
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerObjectNeverExisted, kNeverExistedIRIKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerObjectNeverExisted) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				iri, err := getInstructionResponseAsOnlyIRI(ctx, kNeverExistedIRIKeyId)
+				if err != nil {
+					me.R.Add("Could not resolve the ID of the instruction: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				me.R.Add(fmt.Sprintf("Obtained IRI of the object that has never existed at %s", iri))
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Server Responds 404 Gone For Objects That Never Existed 
+		//
+		// Requires:
+		// - Populates the context with a never-existed IRI value
 		// Side Effects:
 		// - N/A
-		// TODO: Implement
-
-		// TODO: Should: Respond with 404 status code for Object URIs that have never existed
+		&baseTest{
+			TestName:    kServer404NotFoundNeverExisted,
+			Description: "Server responds with 404 status code for Object URIs that have never existed",
+			SpecKind:    TestSpecKindShould,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kServerObjectNeverExisted, existing) {
+					return false
+				} else if !hasTestPass(kServerObjectNeverExisted, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kServerObjectNeverExisted)
+					me.State = TestResultInconclusive
+					return true
+				}
+				iri, err := getInstructionResponseAsOnlyIRI(ctx, kNeverExistedIRIKeyId)
+				if err != nil {
+					me.R.Add("Could not resolve the ID of the instruction: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				ptp := NewPlainTransport(me.R)
+				me.R.Add(fmt.Sprintf("About to dereference never-existing object at %s", iri))
+				done := me.helperDereferenceNotFound(ctx, iri, ptp)
+				if done {
+					return true
+				}
+				me.State = TestResultPass
+				return true
+			},
+		},
 
 		// TODO: Should: Instructions to get a private IRI & whether 403 or 404
 		// TODO: Should: Run Test for 404 status
@@ -906,6 +981,7 @@ func newCommonTests() []Test {
 func newFederatingTests() []Test {
 	// TODO: Port more tests here
 
+	// TODO: Should: Server Filters Inbox Based On Federating Requester's Permission
 	// TODO: Non-normative: Server verifies that the new content is really posted by the actor indicated in Objects received in inbox
 	return nil
 }
@@ -915,6 +991,7 @@ func newFederatingTests() []Test {
 func newSocialTests() []Test {
 	// TODO: Port more tests here
 
+	// TODO: Should: Server Filters Inbox Based On Social Requester's Permission
 	// TODO: Non-normative: Server verifies that the new content is really posted by the actor indicated in Objects received in outbox
 	return nil
 }
