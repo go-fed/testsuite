@@ -18,12 +18,15 @@
 	<p>Description: {{.I.Description}}</p>
 	<p>Instructions: {{.I.Instructions}}</p>
 <form action="/tests/instructions/{{.ID}}" method="post">
+	{{$has_only_labelonly := true}}
 	{{range $i, $ir := .I.Resp}}
 		<p><label for="{{$ir.Key}}">{{$ir.Label}}</label>
 		{{if eq $ir.Type "text_box"}}
 			<input type="text" name="{{$ir.Key}}" id="{{$ir.Key}}"></p>
+			{{$has_only_labelonly = false}}
 		{{else if eq $ir.Type "checkbox"}}
 			<input type="checkbox" name="{{$ir.Key}}" id="{{$ir.Key}}" value="true"></p>
+			{{$has_only_labelonly = false}}
 		{{else if eq $ir.Type "label_only"}}
 			</p>
 		{{else}}
@@ -33,7 +36,9 @@
 	{{if .I.Skippable}}
 	<p><button type="submit" name="{{.I.TestName}}_skip" value="true">Skip</button></p>
 	{{end}}
+	{{if not $has_only_labelonly}}
 	<p><button type="submit" value="Respond">Respond</button></p>
+	{{end}}
 </form>
 {{end}}
 

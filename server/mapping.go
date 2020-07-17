@@ -126,10 +126,6 @@ func (a *ActorMapping) generateKeyData(actor *url.URL) (kd KeyData, err error) {
 	return
 }
 
-func (a *ActorMapping) AddContextInfoForTest(ctx *TestRunnerContext) {
-	ctx.C = context.WithValue(ctx.C, kContextKeyRequestPath, ActorIRIToInboxIRI(ctx.TestActor0).Path)
-}
-
 func (a *ActorMapping) AddContextInfo(c context.Context, r *http.Request) context.Context {
 	c = context.WithValue(c, kContextKeyRequestPath, r.URL.Path)
 	return c

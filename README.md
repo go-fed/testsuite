@@ -19,11 +19,18 @@ for the old test suite's lists of tests.
 
 In development. Not ready for production use.
 
+Ready:
+
+* Common Tests have been ported. Some became split into S2S/C2S test variants.
+* Added option for Webfinger to be supported in a test run.
+* Some S2S tests.
+
 Left to do:
 
-* Implement the rest of the Common Tests
-* Implement all S2S tests
+* Continue implementing S2S tests
 * Implement all C2S tests
+* Add option for verifying inbound HTTP Signatures
+* Add option for using outbound HTTP Signatures
 
 ## Design
 

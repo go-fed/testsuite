@@ -99,7 +99,8 @@ func (d *Database) GetInbox(c context.Context, inboxIRI *url.URL) (inbox vocab.A
 }
 
 func (d *Database) SetInbox(c context.Context, inbox vocab.ActivityStreamsOrderedCollectionPage) error {
-	return d.toOCFromOCPage(c, inbox)
+	err := d.toOCFromOCPage(c, inbox)
+	return err
 }
 
 func (d *Database) Owns(c context.Context, id *url.URL) (owns bool, err error) {

@@ -57,8 +57,12 @@ const (
 	kPrivateIRIKeyId                   = "instruction_key_private_object_iri"
 	kDisclosesPrivateIRIExistenceKeyId = "instruction_key_discloses_private_object_existence"
 	// Federated Tests
-	kDeliveredFederatedActivity1KeyId = "instruction_key_federated_activity_1"
-	kFederatedOutboxIRIKeyID          = "auto_listen_key_federated_outbox_iri"
+	kDeliveredFederatedActivity1KeyId   = "instruction_key_federated_activity_1"
+	kFederatedOutboxIRIKeyID            = "auto_listen_key_federated_outbox_iri"
+	kDeliveredFederatedActivityToKeyId  = "instruction_key_federated_activity_to"
+	kDeliveredFederatedActivityCcKeyId  = "instruction_key_federated_activity_cc"
+	kDeliveredFederatedActivityBtoKeyId = "instruction_key_federated_activity_bto"
+	kDeliveredFederatedActivityBccKeyId = "instruction_key_federated_activity_bcc"
 )
 
 type instructionResponse struct {
@@ -79,17 +83,31 @@ type APHooks interface {
 	ExpectFederatedCoreActivity(keyID string)
 }
 
+type actorIDs struct {
+	ActivityPubIRI   *url.URL
+	WebfingerId      string
+	WebfingerSubject string
+}
+
+func (a actorIDs) String() string {
+	s := a.ActivityPubIRI.String()
+	if len(a.WebfingerId) > 0 {
+		s = fmt.Sprintf("%s (or %s)", s, a.WebfingerId)
+	}
+	return s
+}
+
 type TestRunnerContext struct {
 	// Set by the server
 	TestRemoteActorID *url.URL
 	Actor             pub.FederatingActor
 	DB                *Database
 	AM                *ActorMapping
-	TestActor0        *url.URL
-	TestActor1        *url.URL
-	TestActor2        *url.URL
-	TestActor3        *url.URL
-	TestActor4        *url.URL
+	TestActor0        actorIDs
+	TestActor1        actorIDs
+	TestActor2        actorIDs
+	TestActor3        actorIDs
+	TestActor4        actorIDs
 	// Set by the TestRunner
 	C   context.Context
 	APH APHooks
@@ -449,9 +467,13 @@ const (
 	kServerResponds403ForbiddenForPrivateObject          = "Server Responds With 403 Forbidden For Access-Controlled Objects"
 	kServerResponds404NotFoundForPrivateObject           = "Server Responds With 404 Not Found For Access-Controlled Objects"
 	// Federated Tests
-	kServerDeliversOutboxActivitiesObtainPeerActivity = "Delivers All Activities Posted In The Outbox - Obtain Peer Activity"
-	kServerDeliversOutboxActivities                   = "Delivers All Activities Posted In The Outbox"
-	kGETActorOutboxTestName                           = "GET Actor Outbox"
+	kServerDeliversOutboxActivities           = "Delivers All Activities Posted In The Outbox"
+	kGETActorOutboxTestName                   = "GET Actor Outbox"
+	kServerDeliversActivityTo                 = "Uses `to` To Determine Delivery Recipients"
+	kServerDeliversActivityCc                 = "Uses `cc` To Determine Delivery Recipients"
+	kServerDeliversActivityBto                = "Uses `bto` To Determine Delivery Recipients"
+	kServerDeliversActivityBcc                = "Uses `bcc` To Determine Delivery Recipients"
+	kServerProvidesIdInNonTransientActivities = "Provides An `id` In Non-Transient Activities Sent To Other Servers"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -1174,9 +1196,8 @@ func newFederatingTests() []Test {
 						Instructions: fmt.Sprintf("Please send an activity from %s to the test actor %s", ctx.TestRemoteActorID, ctx.TestActor0),
 						Skippable:    skippable,
 						Resp: []instructionResponse{{
-							Key:   kDeliveredFederatedActivity1KeyId,
-							Type:  labelOnlyInstructionResponse,
-							Label: "IRI of public ActivityStreams content",
+							Key:  kDeliveredFederatedActivity1KeyId,
+							Type: labelOnlyInstructionResponse,
 						}},
 					}
 				}
@@ -1210,67 +1231,6 @@ func newFederatingTests() []Test {
 			},
 		},
 
-		// Delivers All Activities Posted In The Outbox - Obtain Peer's Activity
-		//
-		// Requires:
-		// - delivered activity populated in the context
-		// Side Effects:
-		// - N/a
-		&baseTest{
-			TestName:    kServerDeliversOutboxActivitiesObtainPeerActivity,
-			Description: "Performs delivery on all Activities posted to the outbox",
-			SpecKind:    TestSpecKindMust,
-			R:           NewRecorder(),
-			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
-				if !hasAnyRanResult(kGETActorTestName, existing) || !hasTestPass(kGETActorTestName, existing) {
-					return nil
-				}
-				const skippable = true
-				if !hasAnyInstructionKey(ctx, kServerDeliversOutboxActivitiesObtainPeerActivity, kDeliveredFederatedActivity1KeyId, skippable) {
-					ctx.APH.ExpectFederatedCoreActivity(kDeliveredFederatedActivity1KeyId)
-					return &Instruction{
-						Instructions: fmt.Sprintf("Please send an activity from %s to the test actor %s", ctx.TestRemoteActorID, ctx.TestActor0),
-						Skippable:    skippable,
-						Resp: []instructionResponse{{
-							Key:   kDeliveredFederatedActivity1KeyId,
-							Type:  labelOnlyInstructionResponse,
-							Label: "IRI of public ActivityStreams content",
-						}},
-					}
-				}
-				return nil
-			},
-			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
-				// Check dependencies
-				if !hasAnyRanResult(kGETActorTestName, existing) {
-					return false
-				} else if !hasTestPass(kGETActorTestName, existing) {
-					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
-					me.State = TestResultInconclusive
-					return true
-				}
-				// Check whether this test's instruction results are there or it was skipped
-				const skippable = true
-				if !hasAnyInstructionKey(ctx, kServerDeliversOutboxActivitiesObtainPeerActivity, kDeliveredFederatedActivity1KeyId, skippable) {
-					return false
-				} else if hasSkippedTestName(ctx, kServerDeliversOutboxActivitiesObtainPeerActivity) {
-					me.R.Add("Skipping: Instructions were skipped")
-					me.State = TestResultInconclusive
-					return true
-				}
-				// Obtain the ID of the federated activity delivered to us
-				iri, err := getInstructionResponseAsDirectIRI(ctx, kDeliveredFederatedActivity1KeyId)
-				if err != nil {
-					me.R.Add("Could not resolve the instruction response IRI: " + err.Error())
-					me.State = TestResultFail
-					return true
-				}
-				me.R.Add(fmt.Sprintf("Obtained the federated activity %s", iri))
-				me.State = TestResultPass
-				return true
-			},
-		},
-
 		// GET Actor Outbox
 		//
 		// Requires:
@@ -1287,14 +1247,14 @@ func newFederatingTests() []Test {
 			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
 				if !hasAnyRanResult(kGETActorTestName, existing) {
 					return false
-				} else if !hasAnyRanResult(kServerDeliversOutboxActivitiesObtainPeerActivity, existing) {
+				} else if !hasAnyRanResult(kServerDeliversOutboxActivities, existing) {
 					return false
 				} else if !hasTestPass(kGETActorTestName, existing) {
 					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
 					me.State = TestResultInconclusive
 					return true
-				} else if !hasTestPass(kServerDeliversOutboxActivitiesObtainPeerActivity, existing) {
-					me.R.Add("Skipping: dependency test did not pass: " + kServerDeliversOutboxActivitiesObtainPeerActivity)
+				} else if !hasTestPass(kServerDeliversOutboxActivities, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kServerDeliversOutboxActivities)
 					me.State = TestResultInconclusive
 					return true
 				}
@@ -1350,14 +1310,14 @@ func newFederatingTests() []Test {
 				// Check dependencies
 				if !hasAnyRanResult(kGETActorOutboxTestName, existing) {
 					return false
-				} else if !hasAnyRanResult(kServerDeliversOutboxActivitiesObtainPeerActivity, existing) {
+				} else if !hasAnyRanResult(kServerDeliversOutboxActivities, existing) {
 					return false
 				} else if !hasTestPass(kGETActorOutboxTestName, existing) {
 					me.R.Add("Skipping: dependency test did not pass: " + kGETActorOutboxTestName)
 					me.State = TestResultInconclusive
 					return true
-				} else if !hasTestPass(kServerDeliversOutboxActivitiesObtainPeerActivity, existing) {
-					me.R.Add("Skipping: dependency test did not pass: " + kServerDeliversOutboxActivitiesObtainPeerActivity)
+				} else if !hasTestPass(kServerDeliversOutboxActivities, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kServerDeliversOutboxActivities)
 					me.State = TestResultInconclusive
 					return true
 				}
@@ -1407,6 +1367,407 @@ func newFederatingTests() []Test {
 					me.R.Add("Found the activity ID in the outbox", iri, outboxIRI)
 					me.State = TestResultPass
 				}
+				return true
+			},
+		},
+
+		// Uses `to` To Determine Delivery Recipients
+		//
+		// Requires:
+		// - Remote actor in the Database
+		// Side Effects:
+		// - Populates the delivered activity in the context
+		&baseTest{
+			TestName:    kServerDeliversActivityTo,
+			Description: "Utilizes the `to` field to determine delivery recipients",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				if !hasAnyRanResult(kGETActorTestName, existing) || !hasTestPass(kGETActorTestName, existing) {
+					return nil
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversActivityTo, kDeliveredFederatedActivityToKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivity(kDeliveredFederatedActivityToKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send an activity from %s with the test actor in the `to` field of the activity: %s", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kDeliveredFederatedActivityToKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kGETActorTestName, existing) {
+					return false
+				} else if !hasTestPass(kGETActorTestName, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
+					me.State = TestResultInconclusive
+					return true
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversActivityTo, kDeliveredFederatedActivityToKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDeliversActivityTo) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kDeliveredFederatedActivityToKeyId)
+				if err != nil {
+					me.R.Add("Could not obtain an activity: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				done, t := me.helperMustGetFromDatabase(ctx, iri)
+				if done {
+					return true
+				}
+				activity, ok := t.(pub.Activity)
+				if !ok {
+					me.R.Add("Could not resolve to the pub.Activity type", iri)
+					me.State = TestResultFail
+					return true
+				}
+				to := activity.GetActivityStreamsTo()
+				if to == nil {
+					me.R.Add("Activity has no `to` value", iri)
+					me.State = TestResultFail
+					return true
+				}
+				found := false
+				for iter := to.Begin(); iter != to.End(); iter = iter.Next() {
+					toIRI, err := pub.ToId(iter)
+					if err != nil {
+						me.R.Add("Could not convert a `to` value to an IRI")
+						me.State = TestResultFail
+						return true
+					}
+					if toIRI.String() == ctx.TestActor0.String() {
+						found = true
+						break
+					}
+				}
+				if !found {
+					me.R.Add("Could not find the actor in the `to` property of the activity", iri, ctx.TestActor0)
+					me.State = TestResultFail
+					return true
+				}
+				me.R.Add("Found the actor in the `to` property of the activity", ctx.TestActor0)
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Uses `cc` To Determine Delivery Recipients
+		//
+		// Requires:
+		// - Remote actor in the Database
+		// Side Effects:
+		// - Populates the delivered activity in the context
+		&baseTest{
+			TestName:    kServerDeliversActivityCc,
+			Description: "Utilizes the `cc` field to determine delivery recipients",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				if !hasAnyRanResult(kGETActorTestName, existing) || !hasTestPass(kGETActorTestName, existing) {
+					return nil
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversActivityCc, kDeliveredFederatedActivityCcKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivity(kDeliveredFederatedActivityCcKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send an activity from %s with the test actor in the `cc` field of the activity: %s", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kDeliveredFederatedActivityCcKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kGETActorTestName, existing) {
+					return false
+				} else if !hasTestPass(kGETActorTestName, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
+					me.State = TestResultInconclusive
+					return true
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversActivityCc, kDeliveredFederatedActivityCcKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDeliversActivityCc) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kDeliveredFederatedActivityCcKeyId)
+				if err != nil {
+					me.R.Add("Could not obtain an activity: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				done, t := me.helperMustGetFromDatabase(ctx, iri)
+				if done {
+					return true
+				}
+				activity, ok := t.(pub.Activity)
+				if !ok {
+					me.R.Add("Could not resolve to the pub.Activity type", iri)
+					me.State = TestResultFail
+					return true
+				}
+				cc := activity.GetActivityStreamsCc()
+				if cc == nil {
+					me.R.Add("Activity has no `cc` value", iri)
+					me.State = TestResultFail
+					return true
+				}
+				found := false
+				for iter := cc.Begin(); iter != cc.End(); iter = iter.Next() {
+					ccIRI, err := pub.ToId(iter)
+					if err != nil {
+						me.R.Add("Could not convert a `cc` value to an IRI")
+						me.State = TestResultFail
+						return true
+					}
+					if ccIRI.String() == ctx.TestActor0.String() {
+						found = true
+						break
+					}
+				}
+				if !found {
+					me.R.Add("Could not find the actor in the `cc` property of the activity", iri, ctx.TestActor0)
+					me.State = TestResultFail
+					return true
+				}
+				me.R.Add("Found the actor in the `cc` property of the activity", ctx.TestActor0)
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Uses `bto` To Determine Delivery Recipients
+		//
+		// Requires:
+		// - Remote actor in the Database
+		// Side Effects:
+		// - Populates the delivered activity in the context
+		&baseTest{
+			TestName:    kServerDeliversActivityBto,
+			Description: "Utilizes the `bto` field to determine delivery recipients",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				if !hasAnyRanResult(kGETActorTestName, existing) || !hasTestPass(kGETActorTestName, existing) {
+					return nil
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversActivityBto, kDeliveredFederatedActivityBtoKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivity(kDeliveredFederatedActivityBtoKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send an activity from %s with the test actor in the `bto` field of the activity: %s", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kDeliveredFederatedActivityBtoKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kGETActorTestName, existing) {
+					return false
+				} else if !hasTestPass(kGETActorTestName, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
+					me.State = TestResultInconclusive
+					return true
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversActivityBto, kDeliveredFederatedActivityBtoKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDeliversActivityBto) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kDeliveredFederatedActivityBtoKeyId)
+				if err != nil {
+					me.R.Add("Could not obtain an activity: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				done, t := me.helperMustGetFromDatabase(ctx, iri)
+				if done {
+					return true
+				}
+				activity, ok := t.(pub.Activity)
+				if !ok {
+					me.R.Add("Could not resolve to the pub.Activity type", iri)
+					me.State = TestResultFail
+					return true
+				}
+				bto := activity.GetActivityStreamsBto()
+				if bto != nil && !bto.Empty() {
+					me.R.Add("Activity has a `bto` value, which should be scrubbed before delivery")
+					me.State = TestResultFail
+					return true
+				}
+				me.R.Add("Found no actors in the `bto` property of the activity, this is expected and desired")
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Uses `bcc` To Determine Delivery Recipients
+		//
+		// Requires:
+		// - Remote actor in the Database
+		// Side Effects:
+		// - Populates the delivered activity in the context
+		&baseTest{
+			TestName:    kServerDeliversActivityBcc,
+			Description: "Utilizes the `bcc` field to determine delivery recipients",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				if !hasAnyRanResult(kGETActorTestName, existing) || !hasTestPass(kGETActorTestName, existing) {
+					return nil
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversActivityBcc, kDeliveredFederatedActivityBccKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivity(kDeliveredFederatedActivityBccKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send an activity from %s with the test actor in the `bcc` field of the activity: %s", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kDeliveredFederatedActivityBccKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kGETActorTestName, existing) {
+					return false
+				} else if !hasTestPass(kGETActorTestName, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
+					me.State = TestResultInconclusive
+					return true
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversActivityBcc, kDeliveredFederatedActivityBccKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDeliversActivityBcc) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kDeliveredFederatedActivityBccKeyId)
+				if err != nil {
+					me.R.Add("Could not obtain an activity: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				done, t := me.helperMustGetFromDatabase(ctx, iri)
+				if done {
+					return true
+				}
+				activity, ok := t.(pub.Activity)
+				if !ok {
+					me.R.Add("Could not resolve to the pub.Activity type", iri)
+					me.State = TestResultFail
+					return true
+				}
+				bcc := activity.GetActivityStreamsBcc()
+				if bcc != nil && !bcc.Empty() {
+					me.R.Add("Activity has a `bcc` value, which should be scrubbed before delivery")
+					me.State = TestResultFail
+					return true
+				}
+				me.R.Add("Found no actors in the `bcc` property of the activity, this is expected and desired")
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Provides An `id` In Non-Transient Activities Sent To Other Servers
+		//
+		// Requires:
+		// - At least 1 of the delivery keys to be present
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerProvidesIdInNonTransientActivities,
+			Description: "The `id` JSON-LD property is set on all federated activities received from peer",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kServerDeliversOutboxActivities, existing) ||
+					!hasAnyRanResult(kServerDeliversActivityTo, existing) ||
+					!hasAnyRanResult(kServerDeliversActivityCc, existing) ||
+					!hasAnyRanResult(kServerDeliversActivityBto, existing) ||
+					!hasAnyRanResult(kServerDeliversActivityBcc, existing) {
+					return false
+				}
+				var keysToExamine []string
+				if hasTestPass(kServerDeliversOutboxActivities, existing) {
+					keysToExamine = append(keysToExamine, kDeliveredFederatedActivity1KeyId)
+				}
+				if hasTestPass(kServerDeliversActivityTo, existing) {
+					keysToExamine = append(keysToExamine, kDeliveredFederatedActivityToKeyId)
+				}
+				if hasTestPass(kServerDeliversActivityCc, existing) {
+					keysToExamine = append(keysToExamine, kDeliveredFederatedActivityCcKeyId)
+				}
+				if hasTestPass(kServerDeliversActivityBto, existing) {
+					keysToExamine = append(keysToExamine, kDeliveredFederatedActivityBtoKeyId)
+				}
+				if hasTestPass(kServerDeliversActivityBcc, existing) {
+					keysToExamine = append(keysToExamine, kDeliveredFederatedActivityBccKeyId)
+				}
+				if len(keysToExamine) == 0 {
+					me.R.Add(fmt.Sprintf("Skipping: none of the dependency tests passed: [%s, %s, %s, %s, %s]",
+						kServerDeliversOutboxActivities,
+						kServerDeliversActivityTo,
+						kServerDeliversActivityCc,
+						kServerDeliversActivityBto,
+						kServerDeliversActivityBcc))
+					me.State = TestResultInconclusive
+					return true
+				}
+				var irisToExamine []*url.URL
+				for _, key := range keysToExamine {
+					iri, err := getInstructionResponseAsDirectIRI(ctx, key)
+					if err != nil {
+						me.R.Add("Could not obtain an activity: " + err.Error())
+						me.State = TestResultFail
+						return true
+					}
+					irisToExamine = append(irisToExamine, iri)
+				}
+				for _, iri := range irisToExamine {
+					done, t := me.helperMustGetFromDatabase(ctx, iri)
+					if done {
+						return true
+					}
+					_, err := pub.GetId(t)
+					if err != nil {
+						me.R.Add("Could not obtain the id off the activity", iri)
+						me.State = TestResultFail
+						return true
+					}
+				}
+				me.R.Add("Verified all activities have `id` set", irisToExamine)
+				me.State = TestResultPass
 				return true
 			},
 		},

@@ -2,12 +2,15 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"math/rand"
 	"net/http"
 	"net/url"
 	"path"
+	"strings"
 	"time"
 )
 
@@ -17,6 +20,8 @@ const (
 	kPathTestNew             = "/tests/new"
 	kPathTestState           = "/tests/status/"
 	kPathInstructionResponse = "/tests/instructions/"
+	kPathHostMeta            = "/.well-known/host-meta"
+	kPathWebfinger           = "/.well-known/webfinger"
 )
 
 const (
@@ -26,9 +31,10 @@ const (
 )
 
 type WebServer struct {
-	tmpl *template.Template
-	s    *http.Server
-	ts   *TestServer
+	hostname string
+	tmpl     *template.Template
+	s        *http.Server
+	ts       *TestServer
 }
 
 func NewWebServer(tmpl *template.Template,
@@ -37,9 +43,10 @@ func NewWebServer(tmpl *template.Template,
 	testTimeout time.Duration,
 	maxTests int) *WebServer {
 	ws := &WebServer{
-		tmpl: tmpl,
-		s:    s,
-		ts:   NewTestServer(hostname, kPathPrefixTests, testTimeout, maxTests),
+		hostname: hostname,
+		tmpl:     tmpl,
+		s:        s,
+		ts:       NewTestServer(hostname, kPathPrefixTests, testTimeout, maxTests),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(kPathHome, ws.homepageHandler)
@@ -47,6 +54,8 @@ func NewWebServer(tmpl *template.Template,
 	mux.HandleFunc(kPathTestState, ws.testStatusHandler)
 	mux.HandleFunc(kPathTestNew, ws.startTestHandler)
 	mux.HandleFunc(kPathInstructionResponse, ws.instructionResponseHandler)
+	mux.HandleFunc(kPathHostMeta, ws.hostMetaHandler)
+	mux.HandleFunc(kPathWebfinger, ws.webfingerHandler)
 	s.Handler = mux
 	s.RegisterOnShutdown(ws.shutdown)
 	return ws
@@ -76,11 +85,18 @@ func (ws *WebServer) startTestHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		c2sStr := r.PostFormValue("enable_social")
 		s2sStr := r.PostFormValue("enable_federating")
+		enableWebfingerStr := r.PostFormValue("enable_webfinger")
 		c2s := c2sStr == "true"
 		s2s := s2sStr == "true"
+		enableWebfinger := enableWebfingerStr == "true"
 		testNumber := rand.Int()
 		pathPrefix := path.Join(kPathPrefixTests, fmt.Sprintf("%d", testNumber))
-		err = ws.ts.StartTest(r.Context(), pathPrefix, c2s, s2s, testRemoteActorID)
+		err = ws.ts.StartTest(r.Context(),
+			pathPrefix,
+			c2s,
+			s2s,
+			enableWebfinger,
+			testRemoteActorID)
 		if err != nil {
 			http.Error(w, "Error preparing test: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -146,4 +162,46 @@ func (ws *WebServer) instructionResponseHandler(w http.ResponseWriter, r *http.R
 	} else {
 		http.NotFound(w, r)
 	}
+}
+
+func (ws *WebServer) hostMetaHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/xrd+xml")
+	hm := hostMeta(ws.hostname)
+	io.WriteString(w, hm)
+}
+
+const (
+	// This is an unreserved character of RFC 3986 Section 2.3
+	kWebfingerTestDelim = "."
+)
+
+func (ws *WebServer) webfingerHandler(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	userHost := strings.Split(
+		strings.TrimPrefix(q.Get("resource"), "acct:"),
+		"@")
+	if len(userHost) != 2 {
+		http.Error(w, "Error parsing query: "+q.Get("resource"), http.StatusBadRequest)
+		return
+	}
+	userTest := strings.Split(userHost[0], kWebfingerTestDelim)
+	if len(userTest) != 2 {
+		http.Error(w, "Error parsing test and user: "+userHost[0], http.StatusBadRequest)
+		return
+	}
+	user := userTest[0]
+	pathPrefix := testPathPrefixFromId(userTest[1])
+	username, apIRI, err := ws.ts.HandleWebfinger(pathPrefix, user)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	wf := toWebfinger(ws.hostname, username, apIRI)
+	b, err := json.Marshal(wf)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/jrd+json")
+	w.Write(b)
 }

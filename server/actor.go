@@ -117,19 +117,19 @@ func (a *Actor) SocialCallbacks(c context.Context) (wrapped pub.SocialWrappedCal
 
 /* FEDERATING PROTOCOL */
 
-func (a *Actor) PostInboxRequestBodyHook(c context.Context, r *http.Request, activity pub.Activity) (context.Context, error) {
-	a.am.AddContextInfo(c, r)
+func (a *Actor) PostInboxRequestBodyHook(c context.Context, r *http.Request, activity pub.Activity) (out context.Context, err error) {
+	out = c
 	a.tr.LogPostInboxRequestBodyHook(c, r, activity)
-	return c, nil
+	return
 }
 
 func (a *Actor) AuthenticatePostInbox(c context.Context, w http.ResponseWriter, r *http.Request) (out context.Context, authenticated bool, err error) {
-	out = c
+	out = a.am.AddContextInfo(c, r)
 	client := &http.Client{
 		Timeout: time.Second * 30,
 	}
-	authenticated, err = verifyHttpSignatures(c, a.db.hostname, client, r, a.am)
-	a.tr.LogAuthenticatePostInbox(c, w, r, authenticated, err)
+	authenticated, err = verifyHttpSignatures(out, a.db.hostname, client, r, a.am)
+	a.tr.LogAuthenticatePostInbox(out, w, r, authenticated, err)
 	return
 }
 

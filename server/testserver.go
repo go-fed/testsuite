@@ -18,16 +18,17 @@ import (
 )
 
 type testBundle struct {
-	started time.Time
-	tr      *TestRunner
-	am      *ActorMapping
-	pfa     pub.FederatingActor
-	ctx     *TestRunnerContext
-	db      *Database
-	handler pub.HandlerFunc
-	state   *testState
-	stateMu *sync.RWMutex
-	timer   *time.Timer
+	started         time.Time
+	enableWebfinger bool
+	tr              *TestRunner
+	am              *ActorMapping
+	pfa             pub.FederatingActor
+	ctx             *TestRunnerContext
+	db              *Database
+	handler         pub.HandlerFunc
+	state           *testState
+	stateMu         *sync.RWMutex
+	timer           *time.Timer
 }
 
 type testState struct {
@@ -77,9 +78,15 @@ func NewTestServer(hostname, pathParent string, timeout time.Duration, max int) 
 	}
 }
 
-func (ts *TestServer) StartTest(c context.Context, pathPrefix string, c2s, s2s bool, testRemoteActorID *url.URL) error {
+func (ts *TestServer) StartTest(c context.Context, pathPrefix string, c2s, s2s, enableWebfinger bool, testRemoteActorID *url.URL) error {
 	started := time.Now().UTC()
-	tb := ts.newTestBundle(pathPrefix, c2s, s2s, started, testRemoteActorID)
+	tb := ts.newTestBundle(
+		pathPrefix,
+		c2s,
+		s2s,
+		enableWebfinger,
+		started,
+		testRemoteActorID)
 
 	ok := true
 	ts.cacheMu.Lock()
@@ -150,7 +157,8 @@ func (ts *TestServer) HandleWeb(c context.Context, w http.ResponseWriter, r *htt
 		return
 	}
 	relPathPrefix := path.Join(testPathPrefix, parts[1])
-	if IsRelativePathToInboxIRI(relPathPrefix) {
+	restPath := strings.TrimPrefix(r.URL.Path, relPathPrefix)
+	if IsRelativePathToInboxIRI(restPath) {
 		if isAP, err := tb.pfa.GetInbox(c, w, r); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		} else if isAP {
@@ -162,7 +170,7 @@ func (ts *TestServer) HandleWeb(c context.Context, w http.ResponseWriter, r *htt
 		} else {
 			http.Error(w, "Not an ActivityPub request to the Inbox", http.StatusBadRequest)
 		}
-	} else if IsRelativePathToOutboxIRI(relPathPrefix) {
+	} else if IsRelativePathToOutboxIRI(restPath) {
 		if isAP, err := tb.pfa.GetOutbox(c, w, r); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		} else if isAP {
@@ -218,6 +226,40 @@ func (ts *TestServer) HandleInstructionResponse(pathPrefix string, vals map[stri
 	tb.stateMu.RUnlock()
 }
 
+func (ts *TestServer) HandleWebfinger(pathPrefix string, user string) (username string, apIRI *url.URL, err error) {
+	ts.cacheMu.RLock()
+	tb, ok := ts.cache[pathPrefix]
+	ts.cacheMu.RUnlock()
+	if !ok {
+		err = fmt.Errorf("test not found for: %s", pathPrefix)
+		return
+	}
+	if !tb.enableWebfinger {
+		err = fmt.Errorf("webfinger is not enabled for this test")
+		return
+	}
+	switch user {
+	case kActor0:
+		apIRI = tb.ctx.TestActor0.ActivityPubIRI
+		username = tb.ctx.TestActor0.WebfingerSubject
+	case kActor1:
+		apIRI = tb.ctx.TestActor1.ActivityPubIRI
+		username = tb.ctx.TestActor1.WebfingerSubject
+	case kActor2:
+		apIRI = tb.ctx.TestActor2.ActivityPubIRI
+		username = tb.ctx.TestActor2.WebfingerSubject
+	case kActor3:
+		apIRI = tb.ctx.TestActor3.ActivityPubIRI
+		username = tb.ctx.TestActor3.WebfingerSubject
+	case kActor4:
+		apIRI = tb.ctx.TestActor4.ActivityPubIRI
+		username = tb.ctx.TestActor4.WebfingerSubject
+	default:
+		err = fmt.Errorf("no webfinger for user with name %s", user)
+	}
+	return
+}
+
 func (ts *TestServer) shutdown() {
 	ts.cacheMu.Lock()
 	for _, v := range ts.cache {
@@ -227,7 +269,7 @@ func (ts *TestServer) shutdown() {
 	ts.cacheMu.Unlock()
 }
 
-func (ts *TestServer) newTestBundle(pathPrefix string, c2s, s2s bool, started time.Time, testRemoteActorID *url.URL) testBundle {
+func (ts *TestServer) newTestBundle(pathPrefix string, c2s, s2s, enableWebfinger bool, started time.Time, testRemoteActorID *url.URL) testBundle {
 	tests := newCommonTests()
 	if c2s {
 		tests = append(tests, newSocialTests()...)
@@ -252,12 +294,13 @@ func (ts *TestServer) newTestBundle(pathPrefix string, c2s, s2s bool, started ti
 		AM:                am,
 	}
 	return testBundle{
-		started: started,
-		tr:      tr,
-		am:      am,
-		pfa:     pfa,
-		ctx:     ctx,
-		db:      db,
+		started:         started,
+		enableWebfinger: enableWebfinger,
+		tr:              tr,
+		am:              am,
+		pfa:             pfa,
+		ctx:             ctx,
+		db:              db,
 		state: &testState{
 			ID: testIdFromPathPrefix(pathPrefix),
 		},
@@ -274,12 +317,18 @@ const (
 	kActor4 = "peyton"
 )
 
-func (ts *TestServer) prepareActor(c context.Context, tb testBundle, prefix, name string) (actorIRI *url.URL, err error) {
-	actorIRI = &url.URL{
-		Scheme: "https",
-		Host:   ts.hostname,
-		Path:   path.Join(prefix, name),
+func (ts *TestServer) prepareActor(c context.Context, tb testBundle, prefix, name string) (actor actorIDs, err error) {
+	testID := testIdFromPathPrefix(prefix)
+	actor = actorIDs{
+		ActivityPubIRI: &url.URL{
+			Scheme: "https",
+			Host:   ts.hostname,
+			Path:   path.Join(prefix, name),
+		},
+		WebfingerId:      fmt.Sprintf("@%s%s%s@%s", name, kWebfingerTestDelim, testID, ts.hostname),
+		WebfingerSubject: fmt.Sprintf("%s%s%s", name, kWebfingerTestDelim, testID),
 	}
+	actorIRI := actor.ActivityPubIRI
 
 	var kd KeyData
 	kd, err = tb.am.generateKeyData(actorIRI)
@@ -291,6 +340,10 @@ func (ts *TestServer) prepareActor(c context.Context, tb testBundle, prefix, nam
 	id := streams.NewJSONLDIdProperty()
 	id.Set(actorIRI)
 	person.SetJSONLDId(id)
+
+	urlProp := streams.NewActivityStreamsUrlProperty()
+	urlProp.AppendIRI(actorIRI)
+	person.SetActivityStreamsUrl(urlProp)
 
 	inboxIRI := ActorIRIToInboxIRI(actorIRI)
 	inbox := streams.NewActivityStreamsInboxProperty()
@@ -365,9 +418,9 @@ func (ts *TestServer) prepareActor(c context.Context, tb testBundle, prefix, nam
 	db := tb.db
 	if err = db.Create(c, person); err != nil {
 		return
-	} else if err = createEmptyCollection(c, db, inboxIRI); err != nil {
+	} else if err = createEmptyOrderedCollection(c, db, inboxIRI); err != nil {
 		return
-	} else if err = createEmptyCollection(c, db, outboxIRI); err != nil {
+	} else if err = createEmptyOrderedCollection(c, db, outboxIRI); err != nil {
 		return
 	} else if err = createEmptyCollection(c, db, followersIRI); err != nil {
 		return
@@ -377,6 +430,15 @@ func (ts *TestServer) prepareActor(c context.Context, tb testBundle, prefix, nam
 		return
 	}
 	return
+}
+
+func createEmptyOrderedCollection(c context.Context, db *Database, idIRI *url.URL) error {
+	col := streams.NewActivityStreamsOrderedCollection()
+	id := streams.NewJSONLDIdProperty()
+	id.Set(idIRI)
+	col.SetJSONLDId(id)
+
+	return db.Create(c, col)
 }
 
 func createEmptyCollection(c context.Context, db *Database, idIRI *url.URL) error {
