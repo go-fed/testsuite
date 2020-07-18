@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -86,9 +87,18 @@ func (ws *WebServer) startTestHandler(w http.ResponseWriter, r *http.Request) {
 		c2sStr := r.PostFormValue("enable_social")
 		s2sStr := r.PostFormValue("enable_federating")
 		enableWebfingerStr := r.PostFormValue("enable_webfinger")
+		maxDeliverRecurStr := r.PostFormValue("maximum_deliver_recursion")
 		c2s := c2sStr == "true"
 		s2s := s2sStr == "true"
 		enableWebfinger := enableWebfingerStr == "true"
+		var maxDeliverRecur int
+		if s2s {
+			maxDeliverRecur, err = strconv.Atoi(maxDeliverRecurStr)
+			if err != nil {
+				http.Error(w, "Error parsing maximum delivery recursion limit: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 		testNumber := rand.Int()
 		pathPrefix := path.Join(kPathPrefixTests, fmt.Sprintf("%d", testNumber))
 		err = ws.ts.StartTest(r.Context(),
@@ -96,6 +106,7 @@ func (ws *WebServer) startTestHandler(w http.ResponseWriter, r *http.Request) {
 			c2s,
 			s2s,
 			enableWebfinger,
+			maxDeliverRecur,
 			testRemoteActorID)
 		if err != nil {
 			http.Error(w, "Error preparing test: "+err.Error(), http.StatusInternalServerError)

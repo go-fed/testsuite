@@ -191,6 +191,10 @@ func NewIDPath(pathPrefix string, typename string) string {
 	return path.Join(pathPrefix, kOther, strings.ToLower(typename), fmt.Sprintf("%d", testNumber))
 }
 
+func NewPathWithIndex(pathPrefix string, typename string, reason string, idx int) string {
+	return path.Join(pathPrefix, kOther, strings.ToLower(typename), reason, fmt.Sprintf("%d", idx))
+}
+
 func ActorIRIToInboxIRI(actor *url.URL) *url.URL {
 	c, _ := url.Parse(actor.String())
 	c.Path = path.Join(c.Path, kInbox)

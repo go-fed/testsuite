@@ -17,6 +17,10 @@ import (
 	"github.com/go-fed/activity/streams"
 )
 
+const (
+	kRecurLimit = 1000
+)
+
 type testBundle struct {
 	started         time.Time
 	enableWebfinger bool
@@ -78,7 +82,7 @@ func NewTestServer(hostname, pathParent string, timeout time.Duration, max int) 
 	}
 }
 
-func (ts *TestServer) StartTest(c context.Context, pathPrefix string, c2s, s2s, enableWebfinger bool, testRemoteActorID *url.URL) error {
+func (ts *TestServer) StartTest(c context.Context, pathPrefix string, c2s, s2s, enableWebfinger bool, maxDeliverRecur int, testRemoteActorID *url.URL) error {
 	started := time.Now().UTC()
 	tb := ts.newTestBundle(
 		pathPrefix,
@@ -121,6 +125,59 @@ func (ts *TestServer) StartTest(c context.Context, pathPrefix string, c2s, s2s, 
 	tb.ctx.TestActor4, err = ts.prepareActor(c, tb, pathPrefix, kActor4)
 	if err != nil {
 		return err
+	}
+
+	if s2s {
+		// Prepare nested collections of actors for testing dereference
+		// limits during delivery.
+		if maxDeliverRecur < 1 {
+			return fmt.Errorf("maximum recursion limit for delivery must be >= 1")
+		} else if maxDeliverRecur > kRecurLimit {
+			maxDeliverRecur = kRecurLimit
+			tb.ctx.RecurLimitExceeded = true
+		}
+		// Iterate from deepest to shallowest collection. The extra
+		// collection ensures the 0th one will not be fetched.
+		//
+		// Set up a series of nested Collections whose members are:
+		// {kActor1, kActor2, {kActor3, {...{kActor4}...}}}
+		var prevIRI *url.URL
+		max := maxDeliverRecur + 1
+		var addedActorsLevel2 bool
+		for i := 0; i < max; i++ {
+			col := streams.NewActivityStreamsCollection()
+			id := streams.NewJSONLDIdProperty()
+			idIRI := &url.URL{
+				Scheme: "https",
+				Host:   ts.hostname,
+				Path:   NewPathWithIndex(pathPrefix, col.GetTypeName(), "nested", max-i),
+			}
+			id.Set(idIRI)
+			col.SetJSONLDId(id)
+
+			items := streams.NewActivityStreamsItemsProperty()
+			if i == 0 {
+				items.AppendIRI(tb.ctx.TestActor4.ActivityPubIRI)
+			}
+			if i >= maxDeliverRecur-1 && !addedActorsLevel2 {
+				items.AppendIRI(tb.ctx.TestActor3.ActivityPubIRI)
+				addedActorsLevel2 = true // Depending on depth, could happen twice.
+			}
+			if i >= maxDeliverRecur {
+				items.AppendIRI(tb.ctx.TestActor2.ActivityPubIRI)
+				items.AppendIRI(tb.ctx.TestActor1.ActivityPubIRI)
+			}
+			if i > 0 {
+				items.AppendIRI(prevIRI)
+			}
+			prevIRI = idIRI
+			col.SetActivityStreamsItems(items)
+
+			if err = tb.db.Create(c, col); err != nil {
+				return err
+			}
+		}
+		tb.ctx.RootRecurCollectionID = prevIRI
 	}
 
 	tb.timer = time.AfterFunc(ts.testTimeout, func() {

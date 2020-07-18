@@ -99,15 +99,17 @@ func (a actorIDs) String() string {
 
 type TestRunnerContext struct {
 	// Set by the server
-	TestRemoteActorID *url.URL
-	Actor             pub.FederatingActor
-	DB                *Database
-	AM                *ActorMapping
-	TestActor0        actorIDs
-	TestActor1        actorIDs
-	TestActor2        actorIDs
-	TestActor3        actorIDs
-	TestActor4        actorIDs
+	TestRemoteActorID     *url.URL
+	Actor                 pub.FederatingActor
+	DB                    *Database
+	AM                    *ActorMapping
+	TestActor0            actorIDs
+	TestActor1            actorIDs
+	TestActor2            actorIDs
+	TestActor3            actorIDs
+	TestActor4            actorIDs
+	RecurLimitExceeded    bool     // S2S Only
+	RootRecurCollectionID *url.URL // S2S Only
 	// Set by the TestRunner
 	C   context.Context
 	APH APHooks
@@ -1771,6 +1773,29 @@ func newFederatingTests() []Test {
 				return true
 			},
 		},
+
+		// TODO: Must: (Deref w/ Credentials) Ask to send an activity to the above collection, check incoming HTTP Signatures
+		// TODO: Must: (Delivers in Col/OrdCol) Check that at least kActor1 and kActor2 received the activity
+		// TODO: Must: (Recursion) Check delivery to kActor3 and non-delivery to kActor4
+
+		// TODO: Must: Prompt to send a Create (go-fed checks object)
+		// TODO: Must: Prompt to send an Update (go-fed checks object)
+		// TODO: Must: Prompt to send a Delete (go-fed checks object)
+		// TODO: Must: Prompt to send a Follow (go-fed checks object)
+		// TODO: Must: Prompt to send an Add (go-fed checks object, target)
+		// TODO: Must: Prompt to send a Remove (go-fed checks object, target)
+		// TODO: Must: Prompt to send a Like (go-fed checks object)
+		// TODO: Must: Prompt to send a Block (go-fed checks object) *Special: "Done" button
+		// TODO: Must: Prompt to send an Undo (go-fed checks object)
+
+		// TODO: Must: Prompt to send an activity to kActor0 & kActor0; check to ensure they are listed only once in activity
+		// TODO: Must: Prompt to send an activity to testFederatingPeer & kActor0; check to ensure the sender is not listed in the 'to' nor 'cc'
+
+		// TODO: Should: Check the "Block" action above and see if it was actually delivered to us
+
+		// TODO: Must: Fetch remote peer's inbox and ensure every ID is unique
+
+		// TODO: We need to note to the test end-user that shared-inbox tests are NOT supported.
 
 		// TODO: Non-Normative: Server filters incoming content both by local untrusted users and any remote users through some sort of spam filter
 		// TODO: Non-Normative: By default, implementation does not make HTTP requests to localhost when delivering Activities
