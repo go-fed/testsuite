@@ -63,6 +63,8 @@ const (
 	kDeliveredFederatedActivityCcKeyId  = "instruction_key_federated_activity_cc"
 	kDeliveredFederatedActivityBtoKeyId = "instruction_key_federated_activity_bto"
 	kDeliveredFederatedActivityBccKeyId = "instruction_key_federated_activity_bcc"
+	kRecurrenceDeliveredActivityKeyId   = "instruction_key_recurrence_delivered_activity"
+	kHttpSigMatchRemoteActorKeyId       = "test_runner_key_http_sig_remote_actor_match"
 )
 
 type instructionResponse struct {
@@ -81,6 +83,7 @@ type Instruction struct {
 
 type APHooks interface {
 	ExpectFederatedCoreActivity(keyID string)
+	ExpectFederatedCoreActivityHTTPSigsMustMatchTestRemoteActor(keyID string)
 }
 
 type actorIDs struct {
@@ -97,6 +100,20 @@ func (a actorIDs) String() string {
 	return s
 }
 
+type deliverableIDs struct {
+	ActivityPubIRI   *url.URL
+	WebfingerId      string
+	WebfingerSubject string
+}
+
+func (d deliverableIDs) String() string {
+	s := d.ActivityPubIRI.String()
+	if len(d.WebfingerId) > 0 {
+		s = fmt.Sprintf("%s (or %s)", s, d.WebfingerId)
+	}
+	return s
+}
+
 type TestRunnerContext struct {
 	// Set by the server
 	TestRemoteActorID     *url.URL
@@ -108,8 +125,8 @@ type TestRunnerContext struct {
 	TestActor2            actorIDs
 	TestActor3            actorIDs
 	TestActor4            actorIDs
-	RecurLimitExceeded    bool     // S2S Only
-	RootRecurCollectionID *url.URL // S2S Only
+	RecurLimitExceeded    bool           // S2S Only
+	RootRecurCollectionID deliverableIDs // S2S Only
 	// Set by the TestRunner
 	C   context.Context
 	APH APHooks
@@ -476,6 +493,7 @@ const (
 	kServerDeliversActivityBto                = "Uses `bto` To Determine Delivery Recipients"
 	kServerDeliversActivityBcc                = "Uses `bcc` To Determine Delivery Recipients"
 	kServerProvidesIdInNonTransientActivities = "Provides An `id` In Non-Transient Activities Sent To Other Servers"
+	kServerDereferencesWithUserCreds          = "Dereferences Delivery Targets With User's Credentials"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -531,6 +549,16 @@ func getInstructionResponseAsDirectIRI(ctx *TestRunnerContext, keyID string) (ir
 	iri, ok = ctx.C.Value(keyID).(*url.URL)
 	if !ok {
 		err = fmt.Errorf("cannot get instruction key as *url.URL: %s", keyID)
+		return
+	}
+	return
+}
+
+func getInstructionResponseAsBool(ctx *TestRunnerContext, keyID string) (b bool, err error) {
+	var ok bool
+	b, ok = ctx.C.Value(keyID).(bool)
+	if !ok {
+		err = fmt.Errorf("cannot get instruction key as bool: %s", keyID)
 		return
 	}
 	return
@@ -1774,7 +1802,64 @@ func newFederatingTests() []Test {
 			},
 		},
 
-		// TODO: Must: (Deref w/ Credentials) Ask to send an activity to the above collection, check incoming HTTP Signatures
+		// Dereferences Delivery Targets With User's Credentials
+		//
+		// Requires:
+		// - N/A
+		// Side Effects:
+		// - Sets the recurrence-testing activity in the context
+		&baseTest{
+			TestName:    kServerDereferencesWithUserCreds,
+			Description: "Dereferences delivery targets with the submitting user's credentials",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDereferencesWithUserCreds, kRecurrenceDeliveredActivityKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivityHTTPSigsMustMatchTestRemoteActor(kRecurrenceDeliveredActivityKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send an activity from %s to the collection: %s", ctx.TestRemoteActorID, ctx.RootRecurCollectionID),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kRecurrenceDeliveredActivityKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDereferencesWithUserCreds, kRecurrenceDeliveredActivityKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDereferencesWithUserCreds) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				matched, err := getInstructionResponseAsBool(ctx, kHttpSigMatchRemoteActorKeyId)
+				if err != nil {
+					me.R.Add("Could not obtain whether httpsigs matched: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				if !matched {
+					me.R.Add("Did not dereference with the user's credentials")
+					me.State = TestResultFail
+					return true
+				}
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kRecurrenceDeliveredActivityKeyId)
+				if err != nil {
+					me.R.Add("Could not obtain an activity: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				me.R.Add("Successfully used remote actor's credentials to dereference the collection, and then successfully received an activity", iri)
+				me.State = TestResultPass
+				return true
+			},
+		},
+
 		// TODO: Must: (Delivers in Col/OrdCol) Check that at least kActor1 and kActor2 received the activity
 		// TODO: Must: (Recursion) Check delivery to kActor3 and non-delivery to kActor4
 

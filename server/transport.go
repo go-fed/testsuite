@@ -142,7 +142,7 @@ func verifyHttpSignatures(c context.Context,
 	host string,
 	client *http.Client,
 	r *http.Request,
-	a *ActorMapping) (authenticated bool, err error) {
+	a *ActorMapping) (remoteActor *url.URL, authenticated bool, err error) {
 	// 1. Figure out what key we need to verify
 	var v httpsig.Verifier
 	v, err = httpsig.NewVerifier(r)
@@ -154,6 +154,13 @@ func verifyHttpSignatures(c context.Context,
 	kIdIRI, err = url.Parse(kId)
 	if err != nil {
 		return
+	}
+	// ASSUMPTION: Key is a fragment ID on the actor
+	// No time to be robust here.
+	remoteActor = &url.URL{
+		Scheme: kIdIRI.Scheme,
+		Host:   kIdIRI.Host,
+		Path:   kIdIRI.Path,
 	}
 	// 2. Get our user's credentials
 	var pubKeyURLString string

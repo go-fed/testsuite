@@ -28,8 +28,9 @@ type TestRunner struct {
 	cancel context.CancelFunc
 	ctx    *TestRunnerContext
 	// Flag bits used for synchronizing AP hook behaviors
-	hookSyncMu                 sync.Mutex
-	awaitFederatedCoreActivity string
+	hookSyncMu                   sync.Mutex
+	awaitFederatedCoreActivity   string
+	httpSigsMustMatchRemoteActor bool
 }
 
 func NewTestRunner(sh ServerHandler, tests []Test) *TestRunner {
@@ -131,6 +132,13 @@ func (tr *TestRunner) ExpectFederatedCoreActivity(keyID string) {
 	tr.awaitFederatedCoreActivity = keyID
 }
 
+func (tr *TestRunner) ExpectFederatedCoreActivityHTTPSigsMustMatchTestRemoteActor(keyID string) {
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	tr.awaitFederatedCoreActivity = keyID
+	tr.httpSigsMustMatchRemoteActor = true
+}
+
 func (tr *TestRunner) LogAuthenticateGetInbox(c context.Context, w http.ResponseWriter, r *http.Request, authenticated bool, err error) {
 	tr.raw.Add("LogAuthenticateGetInbox", c, w, r, authenticated, err)
 }
@@ -199,8 +207,8 @@ func (tr *TestRunner) LogPostInboxRequestBodyHook(c context.Context, r *http.Req
 	tr.raw.Add("LogPostInboxRequestBodyHook", c, r, activity)
 }
 
-func (tr *TestRunner) LogAuthenticatePostInbox(c context.Context, w http.ResponseWriter, r *http.Request, authenticated bool, err error) {
-	tr.raw.Add("LogAuthenticatePostInbox", c, w, r, authenticated, err)
+func (tr *TestRunner) LogAuthenticatePostInbox(c context.Context, w http.ResponseWriter, r *http.Request, remoteActor *url.URL, authenticated bool, err error) {
+	tr.raw.Add("LogAuthenticatePostInbox", c, w, r, remoteActor, authenticated, err)
 }
 
 func (tr *TestRunner) LogBlocked(c context.Context, actorIRIs []*url.URL, blocked bool, err error) {
@@ -366,4 +374,16 @@ func (tr *TestRunner) LogFilterForwarding(c context.Context, potentialRecipients
 
 func (tr *TestRunner) LogGetInbox(c context.Context, r *http.Request, outboxId *url.URL, p vocab.ActivityStreamsOrderedCollectionPage, err error) {
 	tr.raw.Add("LogGetInbox", c, r, outboxId, p, err)
+}
+
+func (tr *TestRunner) LogPubHandlerFunc(c context.Context, r *http.Request, isASRequest bool, err error, remoteActor *url.URL, authenticated bool, httpSigErr error) {
+	tr.raw.Add("LogHandle Web Request", c, r, isASRequest, err, remoteActor, authenticated, httpSigErr)
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	if tr.httpSigsMustMatchRemoteActor {
+		matched := tr.ctx.TestRemoteActorID.String() == remoteActor.String()
+		tr.ctx.C = context.WithValue(tr.ctx.C, kHttpSigMatchRemoteActorKeyId, matched)
+		tr.httpSigsMustMatchRemoteActor = false
+	}
+	return
 }

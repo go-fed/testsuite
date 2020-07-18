@@ -177,7 +177,12 @@ func (ts *TestServer) StartTest(c context.Context, pathPrefix string, c2s, s2s, 
 				return err
 			}
 		}
-		tb.ctx.RootRecurCollectionID = prevIRI
+		testID := testIdFromPathPrefix(pathPrefix)
+		tb.ctx.RootRecurCollectionID = deliverableIDs{
+			ActivityPubIRI:   prevIRI,
+			WebfingerId:      fmt.Sprintf("@%s%s%s@%s", kRecurCollection, kWebfingerTestDelim, testID, ts.hostname),
+			WebfingerSubject: fmt.Sprintf("%s%s%s", kRecurCollection, kWebfingerTestDelim, testID),
+		}
 	}
 
 	tb.timer = time.AfterFunc(ts.testTimeout, func() {
@@ -311,6 +316,9 @@ func (ts *TestServer) HandleWebfinger(pathPrefix string, user string) (username 
 	case kActor4:
 		apIRI = tb.ctx.TestActor4.ActivityPubIRI
 		username = tb.ctx.TestActor4.WebfingerSubject
+	case kRecurCollection:
+		apIRI = tb.ctx.RootRecurCollectionID.ActivityPubIRI
+		username = tb.ctx.RootRecurCollectionID.WebfingerSubject
 	default:
 		err = fmt.Errorf("no webfinger for user with name %s", user)
 	}
@@ -341,8 +349,9 @@ func (ts *TestServer) newTestBundle(pathPrefix string, c2s, s2s, enableWebfinger
 		pathPrefix,
 	}
 	tr := NewTestRunner(tsc, tests)
-	actor := NewActor(db, am, tr)
 	clock := &Clock{}
+	handler := pub.NewActivityStreamsHandler(db, clock)
+	actor := NewActor(db, am, tr, handler)
 	pfa := pub.NewActor(actor, actor, actor, db, clock)
 	ctx := &TestRunnerContext{
 		TestRemoteActorID: testRemoteActorID,
@@ -361,17 +370,18 @@ func (ts *TestServer) newTestBundle(pathPrefix string, c2s, s2s, enableWebfinger
 		state: &testState{
 			ID: testIdFromPathPrefix(pathPrefix),
 		},
-		handler: pub.NewActivityStreamsHandler(db, clock),
+		handler: actor.PubHandlerFunc,
 		stateMu: &sync.RWMutex{},
 	}
 }
 
 const (
-	kActor0 = "alex"
-	kActor1 = "taylor"
-	kActor2 = "logan"
-	kActor3 = "austin"
-	kActor4 = "peyton"
+	kActor0          = "alex"
+	kActor1          = "taylor"
+	kActor2          = "logan"
+	kActor3          = "austin"
+	kActor4          = "peyton"
+	kRecurCollection = "recursiveCollection"
 )
 
 func (ts *TestServer) prepareActor(c context.Context, tb testBundle, prefix, name string) (actor actorIDs, err error) {

@@ -18,13 +18,15 @@ type Actor struct {
 	db *Database
 	am *ActorMapping
 	tr *TestRunner
+	h  pub.HandlerFunc
 }
 
-func NewActor(db *Database, am *ActorMapping, tr *TestRunner) *Actor {
+func NewActor(db *Database, am *ActorMapping, tr *TestRunner, h pub.HandlerFunc) *Actor {
 	return &Actor{
 		db: db,
 		am: am,
 		tr: tr,
+		h:  h,
 	}
 }
 
@@ -128,8 +130,9 @@ func (a *Actor) AuthenticatePostInbox(c context.Context, w http.ResponseWriter, 
 	client := &http.Client{
 		Timeout: time.Second * 30,
 	}
-	authenticated, err = verifyHttpSignatures(out, a.db.hostname, client, r, a.am)
-	a.tr.LogAuthenticatePostInbox(out, w, r, authenticated, err)
+	var remoteActor *url.URL
+	remoteActor, authenticated, err = verifyHttpSignatures(out, a.db.hostname, client, r, a.am)
+	a.tr.LogAuthenticatePostInbox(out, w, r, remoteActor, authenticated, err)
 	return
 }
 
@@ -200,5 +203,19 @@ func (a *Actor) GetInbox(c context.Context, r *http.Request) (p vocab.ActivitySt
 	id := HTTPRequestToIRI(r)
 	p, err = a.db.GetInbox(c, id)
 	a.tr.LogGetInbox(c, r, id, p, err)
+	return
+}
+
+func (a *Actor) PubHandlerFunc(c context.Context, w http.ResponseWriter, r *http.Request) (isASRequest bool, err error) {
+	c = a.am.AddContextInfo(c, r)
+	client := &http.Client{
+		Timeout: time.Second * 30,
+	}
+	// Attempt to verify HTTP Signatures, but only for logging/testing
+	// purposes. Never deny.
+	remoteActor, authenticated, httpSigErr := verifyHttpSignatures(c, a.db.hostname, client, r, a.am)
+
+	isASRequest, err = a.h(c, w, r)
+	a.tr.LogPubHandlerFunc(c, r, isASRequest, err, remoteActor, authenticated, httpSigErr)
 	return
 }
