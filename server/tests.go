@@ -505,15 +505,16 @@ const (
 	kServerResponds403ForbiddenForPrivateObject          = "Server Responds With 403 Forbidden For Access-Controlled Objects"
 	kServerResponds404NotFoundForPrivateObject           = "Server Responds With 404 Not Found For Access-Controlled Objects"
 	// Federated Tests
-	kServerDeliversOutboxActivities           = "Delivers All Activities Posted In The Outbox"
-	kGETActorOutboxTestName                   = "GET Actor Outbox"
-	kServerDeliversActivityTo                 = "Uses `to` To Determine Delivery Recipients"
-	kServerDeliversActivityCc                 = "Uses `cc` To Determine Delivery Recipients"
-	kServerDeliversActivityBto                = "Uses `bto` To Determine Delivery Recipients"
-	kServerDeliversActivityBcc                = "Uses `bcc` To Determine Delivery Recipients"
-	kServerProvidesIdInNonTransientActivities = "Provides An `id` In Non-Transient Activities Sent To Other Servers"
-	kServerDereferencesWithUserCreds          = "Dereferences Delivery Targets With User's Credentials"
-	kServerDeliversToActorsInCollections      = "Delivers To Actors In Collections/OrderedCollections"
+	kServerDeliversOutboxActivities                 = "Delivers All Activities Posted In The Outbox"
+	kGETActorOutboxTestName                         = "GET Actor Outbox"
+	kServerDeliversActivityTo                       = "Uses `to` To Determine Delivery Recipients"
+	kServerDeliversActivityCc                       = "Uses `cc` To Determine Delivery Recipients"
+	kServerDeliversActivityBto                      = "Uses `bto` To Determine Delivery Recipients"
+	kServerDeliversActivityBcc                      = "Uses `bcc` To Determine Delivery Recipients"
+	kServerProvidesIdInNonTransientActivities       = "Provides An `id` In Non-Transient Activities Sent To Other Servers"
+	kServerDereferencesWithUserCreds                = "Dereferences Delivery Targets With User's Credentials"
+	kServerDeliversToActorsInCollections            = "Delivers To Actors In Collections/OrderedCollections"
+	kServerDeliversToActorsInCollectionsRecursively = "Delivers To Nested Actors In Collections/OrderedCollections"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -1945,7 +1946,93 @@ func newFederatingTests() []Test {
 			},
 		},
 
-		// TODO: Must: (Recursion) Check delivery to kActor3 and non-delivery to kActor4
+		// Delivers To Nested Actors In Collections/OrderedCollections
+		//
+		// Requires:
+		// - Sets the recursive-testing activity in the context
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerDeliversToActorsInCollectionsRecursively,
+			Description: "Delivers to nested actors in Collections recursively if the Collection contains Collections, and limits recursion depth >= 1",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kServerDereferencesWithUserCreds, existing) {
+					return false
+				} else if !hasTestPass(kServerDereferencesWithUserCreds, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kServerDereferencesWithUserCreds)
+					me.State = TestResultInconclusive
+					return true
+				}
+				// Get IRI of the activity received
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kRecurrenceDeliveredActivityKeyId)
+				if err != nil {
+					me.R.Add("Could not obtain an activity: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				// Get kActor3 Inbox
+				actor3InboxIRI := ActorIRIToInboxIRI(ctx.TestActor3.ActivityPubIRI)
+				me.R.Add("Getting inbox", actor3InboxIRI)
+				done, t3 := me.helperMustGetFromDatabase(ctx, actor3InboxIRI)
+				if done {
+					return true
+				}
+				done, oc3 := me.helperToOrderedCollectionOrPage(ctx, t3)
+				if done {
+					return true
+				}
+				// Get kActor4 Inbox
+				actor4InboxIRI := ActorIRIToInboxIRI(ctx.TestActor4.ActivityPubIRI)
+				me.R.Add("Getting inbox", actor4InboxIRI)
+				done, t4 := me.helperMustGetFromDatabase(ctx, actor4InboxIRI)
+				if done {
+					return true
+				}
+				done, oc4 := me.helperToOrderedCollectionOrPage(ctx, t4)
+				if done {
+					return true
+				}
+				// Determine whether kActor3 and kActor4 have the activity in their inbox
+				orderedItems3Prop := oc3.GetActivityStreamsOrderedItems()
+				done, found3 := me.helperOrderedItemsHasIRI(ctx, iri, actor3InboxIRI, orderedItems3Prop)
+				if done {
+					return true
+				}
+				orderedItems4Prop := oc4.GetActivityStreamsOrderedItems()
+				done, found4 := me.helperOrderedItemsHasIRI(ctx, iri, actor4InboxIRI, orderedItems4Prop)
+				if done {
+					return true
+				}
+				if found3 && !found4 {
+					// Passing case, but RecurLimitExceeded may have happened during setup
+					if ctx.RecurLimitExceeded {
+						me.R.Add("Found the activity ID in one inbox and not the too-nested-deep inbox, as expected", iri, actor3InboxIRI, actor4InboxIRI)
+						me.State = TestResultPass
+					} else {
+						me.R.Add("Found the activity ID in one inbox and not the too-nested-deep inbox, as expected. However, during test setup the test server hit its own limit, meaning there is a mismatch between testing parameters and effective behavior!", iri, actor3InboxIRI, actor4InboxIRI)
+						me.State = TestResultFail
+					}
+				} else {
+					// Failing case, but RecurLimitExceeded may have happened during setup
+					if found3 && found4 && ctx.RecurLimitExceeded {
+						me.R.Add("Found the activity ID in both inboxes, which is not desired, but during test setup this test server hit its own recursion limit. The software under test recurs deeper than this test server is permitted. So this test cannot determine whether the federated peer passes nor fails!", iri, actor3InboxIRI, actor4InboxIRI)
+						me.State = TestResultInconclusive
+					} else if !found3 {
+						me.R.Add("The peer did not recur far enough to deliver to the inbox", iri, actor3InboxIRI)
+						me.State = TestResultFail
+					} else if found4 && !ctx.RecurLimitExceeded {
+						me.R.Add("The peer recursively went too far to deliver to the inbox", iri, actor4InboxIRI)
+						me.State = TestResultFail
+					} else {
+						me.R.Add("Did not find the activity in one inbox, and not in the too-deep inbox, without hitting the test server's own recursive limitations.", iri, actor3InboxIRI, actor4InboxIRI)
+						me.State = TestResultFail
+					}
+				}
+				return true
+			},
+		},
 
 		// TODO: Must: Prompt to send a Create (go-fed checks object)
 		// TODO: Must: Prompt to send an Update (go-fed checks object)
