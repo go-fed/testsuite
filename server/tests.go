@@ -1049,7 +1049,7 @@ func newCommonTests() []Test {
 			},
 		},
 
-		// Server Responds 404 Gone For Objects That Never Existed
+		// Server Responds 404 Not Found For Objects That Never Existed
 		//
 		// Requires:
 		// - Populates the context with a never-existed IRI value
