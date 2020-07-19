@@ -466,6 +466,25 @@ func (b *baseTest) helperToTombstone(ctx *TestRunnerContext, t vocab.Type) (done
 	return
 }
 
+func (b *baseTest) helperOrderedItemsHasIRI(ctx *TestRunnerContext, toFind, examinedCollectionIRI *url.URL, oip vocab.ActivityStreamsOrderedItemsProperty) (done, found bool) {
+	if oip != nil {
+		for iter := oip.Begin(); iter != oip.End(); iter = iter.Next() {
+			oiIRI, err := pub.ToId(iter)
+			if err != nil {
+				b.R.Add("Cannot get ID of orderedItems element", examinedCollectionIRI)
+				b.State = TestResultFail
+				done = true
+				return
+			}
+			if oiIRI.String() == toFind.String() {
+				found = true
+				break
+			}
+		}
+	}
+	return
+}
+
 /* TEST HELPERS & CONSTANTS */
 
 const (
@@ -494,6 +513,7 @@ const (
 	kServerDeliversActivityBcc                = "Uses `bcc` To Determine Delivery Recipients"
 	kServerProvidesIdInNonTransientActivities = "Provides An `id` In Non-Transient Activities Sent To Other Servers"
 	kServerDereferencesWithUserCreds          = "Dereferences Delivery Targets With User's Credentials"
+	kServerDeliversToActorsInCollections      = "Delivers To Actors In Collections/OrderedCollections"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -1374,21 +1394,10 @@ func newFederatingTests() []Test {
 				if done {
 					return true
 				}
-				found := false
 				orderedItemsProp := oc.GetActivityStreamsOrderedItems()
-				if orderedItemsProp != nil {
-					for iter := orderedItemsProp.Begin(); iter != orderedItemsProp.End(); iter = iter.Next() {
-						oiIRI, err := pub.ToId(iter)
-						if err != nil {
-							me.R.Add("Cannot get ID of element in Outbox", outboxIRI)
-							me.State = TestResultFail
-							return true
-						}
-						if oiIRI.String() == iri.String() {
-							found = true
-							break
-						}
-					}
+				done, found := me.helperOrderedItemsHasIRI(ctx, iri, outboxIRI, orderedItemsProp)
+				if done {
+					return true
 				}
 				if !found {
 					me.R.Add("Could not find the activity ID in the outbox", iri, outboxIRI)
@@ -1807,7 +1816,7 @@ func newFederatingTests() []Test {
 		// Requires:
 		// - N/A
 		// Side Effects:
-		// - Sets the recurrence-testing activity in the context
+		// - Sets the recursive-testing activity in the context
 		&baseTest{
 			TestName:    kServerDereferencesWithUserCreds,
 			Description: "Dereferences delivery targets with the submitting user's credentials",
@@ -1860,7 +1869,82 @@ func newFederatingTests() []Test {
 			},
 		},
 
-		// TODO: Must: (Delivers in Col/OrdCol) Check that at least kActor1 and kActor2 received the activity
+		// Delivers To Actors In Collections/OrderedCollections
+		//
+		// Requires:
+		// - Sets the recursive-testing activity in the context
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerDeliversToActorsInCollections,
+			Description: "Delivers to all items in recipients that are Collections or OrderedCollections",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kServerDereferencesWithUserCreds, existing) {
+					return false
+				} else if !hasTestPass(kServerDereferencesWithUserCreds, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kServerDereferencesWithUserCreds)
+					me.State = TestResultInconclusive
+					return true
+				}
+				// Get IRI of the activity received
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kRecurrenceDeliveredActivityKeyId)
+				if err != nil {
+					me.R.Add("Could not obtain an activity: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				// Get kActor1 Inbox
+				actor1InboxIRI := ActorIRIToInboxIRI(ctx.TestActor1.ActivityPubIRI)
+				me.R.Add("Getting inbox", actor1InboxIRI)
+				done, t1 := me.helperMustGetFromDatabase(ctx, actor1InboxIRI)
+				if done {
+					return true
+				}
+				done, oc1 := me.helperToOrderedCollectionOrPage(ctx, t1)
+				if done {
+					return true
+				}
+				// Get kActor2 Inbox
+				actor2InboxIRI := ActorIRIToInboxIRI(ctx.TestActor2.ActivityPubIRI)
+				me.R.Add("Getting inbox", actor2InboxIRI)
+				done, t2 := me.helperMustGetFromDatabase(ctx, actor2InboxIRI)
+				if done {
+					return true
+				}
+				done, oc2 := me.helperToOrderedCollectionOrPage(ctx, t2)
+				if done {
+					return true
+				}
+				// Ensure both their inboxes have the IRI of the activity.
+				orderedItems1Prop := oc1.GetActivityStreamsOrderedItems()
+				done, found1 := me.helperOrderedItemsHasIRI(ctx, iri, actor1InboxIRI, orderedItems1Prop)
+				if done {
+					return true
+				}
+				orderedItems2Prop := oc2.GetActivityStreamsOrderedItems()
+				done, found2 := me.helperOrderedItemsHasIRI(ctx, iri, actor2InboxIRI, orderedItems2Prop)
+				if done {
+					return true
+				}
+				if !found1 && !found2 {
+					me.R.Add("Could not find the activity ID in any of the inboxes", iri, actor1InboxIRI, actor2InboxIRI)
+					me.State = TestResultFail
+				} else if !found1 {
+					me.R.Add("Could not find the activity ID in one of the two inboxes", iri, actor1InboxIRI)
+					me.State = TestResultFail
+				} else if !found2 {
+					me.R.Add("Could not find the activity ID in one of the two inboxes", iri, actor2InboxIRI)
+					me.State = TestResultFail
+				} else {
+					me.R.Add("Found the activity ID in both inboxes", iri, actor1InboxIRI, actor2InboxIRI)
+					me.State = TestResultPass
+				}
+				return true
+			},
+		},
+
 		// TODO: Must: (Recursion) Check delivery to kActor3 and non-delivery to kActor4
 
 		// TODO: Must: Prompt to send a Create (go-fed checks object)
