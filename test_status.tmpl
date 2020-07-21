@@ -29,6 +29,9 @@
 			{{$has_only_labelonly = false}}
 		{{else if eq $ir.Type "label_only"}}
 			</p>
+		{{else if eq $ir.Type "done_button"}}
+			<input type="submit" name="{{$ir.Key}}" id="{{$ir.Key}}" value="true">Done</p>
+			{{$has_only_labelonly = false}}
 		{{else}}
 			Error: unhandled input type {{$ir.Type}}</p>
 		{{end}}

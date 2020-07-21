@@ -41,9 +41,10 @@ type Result struct {
 type instructionResponseType string
 
 const (
-	textBoxInstructionResponse   instructionResponseType = "text_box"
-	checkBoxInstructionResponse                          = "checkbox"
-	labelOnlyInstructionResponse                         = "label_only"
+	textBoxInstructionResponse    instructionResponseType = "text_box"
+	checkBoxInstructionResponse                           = "checkbox"
+	labelOnlyInstructionResponse                          = "label_only"
+	doneButtonInstructionResponse                         = "done_button"
 )
 
 // Key IDs of user-submitted responses to instructions.
@@ -65,6 +66,16 @@ const (
 	kDeliveredFederatedActivityBccKeyId = "instruction_key_federated_activity_bcc"
 	kRecurrenceDeliveredActivityKeyId   = "instruction_key_recurrence_delivered_activity"
 	kHttpSigMatchRemoteActorKeyId       = "test_runner_key_http_sig_remote_actor_match"
+	kServerCreateActivityKeyId          = "instruction_key_federated_create_activity"
+	kServerUpdateActivityKeyId          = "instruction_key_federated_update_activity"
+	kServerDeleteActivityKeyId          = "instruction_key_federated_delete_activity"
+	kServerFollowActivityKeyId          = "instruction_key_federated_follow_activity"
+	kServerAddActivityKeyId             = "instruction_key_federated_add_activity"
+	kServerRemoveActivityKeyId          = "instruction_key_federated_remove_activity"
+	kServerLikeActivityKeyId            = "instruction_key_federated_like_activity"
+	kServerBlockActivityKeyId           = "instruction_key_federated_block_activity"
+	kServerBlockActivityDoneKeyId       = "instruction_key_federated_block_activity_done"
+	kServerUndoActivityKeyId            = "instruction_key_federated_undo_activity"
 )
 
 type instructionResponse struct {
@@ -84,6 +95,15 @@ type Instruction struct {
 type APHooks interface {
 	ExpectFederatedCoreActivity(keyID string)
 	ExpectFederatedCoreActivityHTTPSigsMustMatchTestRemoteActor(keyID string)
+	ExpectFederatedCoreActivityCreate(keyID string)
+	ExpectFederatedCoreActivityUpdate(keyID string)
+	ExpectFederatedCoreActivityDelete(keyID string)
+	ExpectFederatedCoreActivityFollow(keyID string)
+	ExpectFederatedCoreActivityAdd(keyID string)
+	ExpectFederatedCoreActivityRemove(keyID string)
+	ExpectFederatedCoreActivityLike(keyID string)
+	ExpectFederatedCoreActivityBlock(keyID string)
+	ExpectFederatedCoreActivityUndo(keyID string)
 }
 
 type actorIDs struct {
@@ -515,6 +535,15 @@ const (
 	kServerDereferencesWithUserCreds                = "Dereferences Delivery Targets With User's Credentials"
 	kServerDeliversToActorsInCollections            = "Delivers To Actors In Collections/OrderedCollections"
 	kServerDeliversToActorsInCollectionsRecursively = "Delivers To Nested Actors In Collections/OrderedCollections"
+	kServerDeliversCreateWithObject                 = "Delivers Create With Object"
+	kServerDeliversUpdateWithObject                 = "Delivers Update With Object"
+	kServerDeliversDeleteWithObject                 = "Delivers Delete With Object"
+	kServerDeliversFollowWithObject                 = "Delivers Follow With Object"
+	kServerDeliversAddWithObjectAndTarget           = "Delivers Add With Object And Target"
+	kServerDeliversRemoveWithObjectAndTarget        = "Delivers Remove With Object And Target"
+	kServerDeliversLikeWithObject                   = "Delivers Like With Object"
+	kServerDeliversBlockWithObject                  = "Delivers Block With Object"
+	kServerDeliversUndoWithObject                   = "Delivers Undo With Object"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -2034,15 +2063,377 @@ func newFederatingTests() []Test {
 			},
 		},
 
-		// TODO: Must: Prompt to send a Create (go-fed checks object)
-		// TODO: Must: Prompt to send an Update (go-fed checks object)
-		// TODO: Must: Prompt to send a Delete (go-fed checks object)
-		// TODO: Must: Prompt to send a Follow (go-fed checks object)
-		// TODO: Must: Prompt to send an Add (go-fed checks object, target)
-		// TODO: Must: Prompt to send a Remove (go-fed checks object, target)
-		// TODO: Must: Prompt to send a Like (go-fed checks object)
-		// TODO: Must: Prompt to send a Block (go-fed checks object) *Special: "Done" button
-		// TODO: Must: Prompt to send an Undo (go-fed checks object)
+		// Delivers Create With Object
+		//
+		// Requires:
+		// - N/A
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerDeliversCreateWithObject,
+			Description: "Delivers activity with 'object' property if the Activity type is a Create",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversCreateWithObject, kServerCreateActivityKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivityCreate(kServerCreateActivityKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send a Create activity from %s to the test actor %s", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kServerCreateActivityKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversCreateWithObject, kServerCreateActivityKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDeliversCreateWithObject) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				me.R.Add("Callback was successfully called after examining the activity.")
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Delivers Update With Object
+		//
+		// Requires:
+		// - N/A
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerDeliversUpdateWithObject,
+			Description: "Delivers activity with 'object' property if the Activity type is an Update",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversUpdateWithObject, kServerUpdateActivityKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivityUpdate(kServerUpdateActivityKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send a Update activity from %s to the test actor %s", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kServerUpdateActivityKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversUpdateWithObject, kServerUpdateActivityKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDeliversUpdateWithObject) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				me.R.Add("Callback was successfully called after examining the activity.")
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Delivers Delete With Object
+		//
+		// Requires:
+		// - N/A
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerDeliversDeleteWithObject,
+			Description: "Delivers activity with 'object' property if the Activity type is a Delete",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversDeleteWithObject, kServerDeleteActivityKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivityDelete(kServerDeleteActivityKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send a Delete activity from %s to the test actor %s", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kServerDeleteActivityKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversDeleteWithObject, kServerDeleteActivityKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDeliversDeleteWithObject) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				me.R.Add("Callback was successfully called after examining the activity.")
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Delivers Follow With Object
+		//
+		// Requires:
+		// - N/A
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerDeliversFollowWithObject,
+			Description: "Delivers activity with 'object' property if the Activity type is a Follow",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversFollowWithObject, kServerFollowActivityKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivityFollow(kServerFollowActivityKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send a Follow activity from %s to the test actor %s", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kServerFollowActivityKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversFollowWithObject, kServerFollowActivityKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDeliversFollowWithObject) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				me.R.Add("Callback was successfully called after examining the activity.")
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Delivers Add With Object And Target
+		//
+		// Requires:
+		// - N/A
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerDeliversAddWithObjectAndTarget,
+			Description: "Delivers activity with 'object' and 'target' properties if the Activity type is an Add",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversAddWithObjectAndTarget, kServerAddActivityKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivityAdd(kServerAddActivityKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send an Add activity from %s to the test actor %s", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kServerAddActivityKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversAddWithObjectAndTarget, kServerAddActivityKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDeliversAddWithObjectAndTarget) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				me.R.Add("Callback was successfully called after examining the activity.")
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Delivers Remove With Object And Target
+		//
+		// Requires:
+		// - N/A
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerDeliversRemoveWithObjectAndTarget,
+			Description: "Delivers activity with 'object' and 'target' properties if the Activity type is a Remove",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversRemoveWithObjectAndTarget, kServerRemoveActivityKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivityRemove(kServerRemoveActivityKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send a Remove activity from %s to the test actor %s", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kServerRemoveActivityKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversRemoveWithObjectAndTarget, kServerRemoveActivityKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDeliversRemoveWithObjectAndTarget) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				me.R.Add("Callback was successfully called after examining the activity.")
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Delivers Like With Object
+		//
+		// Requires:
+		// - N/A
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerDeliversLikeWithObject,
+			Description: "Delivers activity with 'object' property if the Activity type is a Like",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversLikeWithObject, kServerLikeActivityKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivityLike(kServerLikeActivityKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send a Like activity from %s to the test actor %s", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kServerLikeActivityKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversLikeWithObject, kServerLikeActivityKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDeliversLikeWithObject) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				me.R.Add("Callback was successfully called after examining the activity.")
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Delivers Block With Object
+		//
+		// Requires:
+		// - N/A
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerDeliversBlockWithObject,
+			Description: "Delivers activity with 'object' property if the Activity type is a Block",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversBlockWithObject, kServerBlockActivityKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivityBlock(kServerBlockActivityKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please perform a Block activity from %s to the test actor %s. Once done, if you do not send a Block activity to federated peers, click 'Done' below", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kServerBlockActivityKeyId,
+							Type: labelOnlyInstructionResponse,
+						}, {
+							Key:  kServerBlockActivityDoneKeyId,
+							Type: doneButtonInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversBlockWithObject, kServerBlockActivityKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDeliversBlockWithObject) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				me.R.Add("Callback was successfully called after examining the activity.")
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Delivers Undo With Object
+		//
+		// Requires:
+		// - N/A
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerDeliversUndoWithObject,
+			Description: "Delivers activity with 'object' property if the Activity type is an Undo",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversUndoWithObject, kServerUndoActivityKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivityUndo(kServerUndoActivityKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please perform an Undo activity from %s to the test actor %s", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kServerUndoActivityKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDeliversUndoWithObject, kServerUndoActivityKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDeliversUndoWithObject) {
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				me.R.Add("Callback was successfully called after examining the activity.")
+				me.State = TestResultPass
+				return true
+			},
+		},
 
 		// TODO: Must: Prompt to send an activity to kActor0 & kActor0; check to ensure they are listed only once in activity
 		// TODO: Must: Prompt to send an activity to testFederatingPeer & kActor0; check to ensure the sender is not listed in the 'to' nor 'cc'

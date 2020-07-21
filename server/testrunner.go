@@ -28,9 +28,18 @@ type TestRunner struct {
 	cancel context.CancelFunc
 	ctx    *TestRunnerContext
 	// Flag bits used for synchronizing AP hook behaviors
-	hookSyncMu                   sync.Mutex
-	awaitFederatedCoreActivity   string
-	httpSigsMustMatchRemoteActor bool
+	hookSyncMu                       sync.Mutex
+	awaitFederatedCoreActivity       string
+	awaitFederatedCoreActivityCreate string
+	awaitFederatedCoreActivityUpdate string
+	awaitFederatedCoreActivityDelete string
+	awaitFederatedCoreActivityFollow string
+	awaitFederatedCoreActivityAdd    string
+	awaitFederatedCoreActivityRemove string
+	awaitFederatedCoreActivityLike   string
+	awaitFederatedCoreActivityBlock  string
+	awaitFederatedCoreActivityUndo   string
+	httpSigsMustMatchRemoteActor     bool
 }
 
 func NewTestRunner(sh ServerHandler, tests []Test) *TestRunner {
@@ -139,6 +148,60 @@ func (tr *TestRunner) ExpectFederatedCoreActivityHTTPSigsMustMatchTestRemoteActo
 	tr.httpSigsMustMatchRemoteActor = true
 }
 
+func (tr *TestRunner) ExpectFederatedCoreActivityCreate(keyID string) {
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	tr.awaitFederatedCoreActivityCreate = keyID
+}
+
+func (tr *TestRunner) ExpectFederatedCoreActivityUpdate(keyID string) {
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	tr.awaitFederatedCoreActivityUpdate = keyID
+}
+
+func (tr *TestRunner) ExpectFederatedCoreActivityDelete(keyID string) {
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	tr.awaitFederatedCoreActivityDelete = keyID
+}
+
+func (tr *TestRunner) ExpectFederatedCoreActivityFollow(keyID string) {
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	tr.awaitFederatedCoreActivityFollow = keyID
+}
+
+func (tr *TestRunner) ExpectFederatedCoreActivityAdd(keyID string) {
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	tr.awaitFederatedCoreActivityAdd = keyID
+}
+
+func (tr *TestRunner) ExpectFederatedCoreActivityRemove(keyID string) {
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	tr.awaitFederatedCoreActivityRemove = keyID
+}
+
+func (tr *TestRunner) ExpectFederatedCoreActivityLike(keyID string) {
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	tr.awaitFederatedCoreActivityLike = keyID
+}
+
+func (tr *TestRunner) ExpectFederatedCoreActivityBlock(keyID string) {
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	tr.awaitFederatedCoreActivityBlock = keyID
+}
+
+func (tr *TestRunner) ExpectFederatedCoreActivityUndo(keyID string) {
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	tr.awaitFederatedCoreActivityUndo = keyID
+}
+
 func (tr *TestRunner) LogAuthenticateGetInbox(c context.Context, w http.ResponseWriter, r *http.Request, authenticated bool, err error) {
 	tr.raw.Add("LogAuthenticateGetInbox", c, w, r, authenticated, err)
 }
@@ -230,6 +293,12 @@ func (tr *TestRunner) LogFederatingCreate(c context.Context, v vocab.ActivityStr
 		tr.awaitFederatedCoreActivity = ""
 		tr.ctx.InstructionDone()
 	}
+	if len(tr.awaitFederatedCoreActivityCreate) > 0 {
+		key := tr.awaitFederatedCoreActivityCreate
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivityCreate = ""
+		tr.ctx.InstructionDone()
+	}
 }
 
 func (tr *TestRunner) LogFederatingUpdate(c context.Context, v vocab.ActivityStreamsUpdate) {
@@ -245,6 +314,12 @@ func (tr *TestRunner) LogFederatingUpdate(c context.Context, v vocab.ActivityStr
 		key := tr.awaitFederatedCoreActivity
 		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
 		tr.awaitFederatedCoreActivity = ""
+		tr.ctx.InstructionDone()
+	}
+	if len(tr.awaitFederatedCoreActivityUpdate) > 0 {
+		key := tr.awaitFederatedCoreActivityUpdate
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivityUpdate = ""
 		tr.ctx.InstructionDone()
 	}
 }
@@ -264,6 +339,12 @@ func (tr *TestRunner) LogFederatingDelete(c context.Context, v vocab.ActivityStr
 		tr.awaitFederatedCoreActivity = ""
 		tr.ctx.InstructionDone()
 	}
+	if len(tr.awaitFederatedCoreActivityDelete) > 0 {
+		key := tr.awaitFederatedCoreActivityDelete
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivityDelete = ""
+		tr.ctx.InstructionDone()
+	}
 }
 
 func (tr *TestRunner) LogFederatingFollow(c context.Context, v vocab.ActivityStreamsFollow) {
@@ -279,6 +360,12 @@ func (tr *TestRunner) LogFederatingFollow(c context.Context, v vocab.ActivityStr
 		key := tr.awaitFederatedCoreActivity
 		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
 		tr.awaitFederatedCoreActivity = ""
+		tr.ctx.InstructionDone()
+	}
+	if len(tr.awaitFederatedCoreActivityFollow) > 0 {
+		key := tr.awaitFederatedCoreActivityFollow
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivityFollow = ""
 		tr.ctx.InstructionDone()
 	}
 }
@@ -298,6 +385,12 @@ func (tr *TestRunner) LogFederatingAdd(c context.Context, v vocab.ActivityStream
 		tr.awaitFederatedCoreActivity = ""
 		tr.ctx.InstructionDone()
 	}
+	if len(tr.awaitFederatedCoreActivityAdd) > 0 {
+		key := tr.awaitFederatedCoreActivityAdd
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivityAdd = ""
+		tr.ctx.InstructionDone()
+	}
 }
 
 func (tr *TestRunner) LogFederatingRemove(c context.Context, v vocab.ActivityStreamsRemove) {
@@ -313,6 +406,12 @@ func (tr *TestRunner) LogFederatingRemove(c context.Context, v vocab.ActivityStr
 		key := tr.awaitFederatedCoreActivity
 		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
 		tr.awaitFederatedCoreActivity = ""
+		tr.ctx.InstructionDone()
+	}
+	if len(tr.awaitFederatedCoreActivityRemove) > 0 {
+		key := tr.awaitFederatedCoreActivityRemove
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivityRemove = ""
 		tr.ctx.InstructionDone()
 	}
 }
@@ -332,6 +431,12 @@ func (tr *TestRunner) LogFederatingLike(c context.Context, v vocab.ActivityStrea
 		tr.awaitFederatedCoreActivity = ""
 		tr.ctx.InstructionDone()
 	}
+	if len(tr.awaitFederatedCoreActivityLike) > 0 {
+		key := tr.awaitFederatedCoreActivityLike
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivityLike = ""
+		tr.ctx.InstructionDone()
+	}
 }
 
 func (tr *TestRunner) LogFederatingUndo(c context.Context, v vocab.ActivityStreamsUndo) {
@@ -349,6 +454,12 @@ func (tr *TestRunner) LogFederatingUndo(c context.Context, v vocab.ActivityStrea
 		tr.awaitFederatedCoreActivity = ""
 		tr.ctx.InstructionDone()
 	}
+	if len(tr.awaitFederatedCoreActivityUndo) > 0 {
+		key := tr.awaitFederatedCoreActivityUndo
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivityUndo = ""
+		tr.ctx.InstructionDone()
+	}
 }
 
 func (tr *TestRunner) LogFederatingBlock(c context.Context, v vocab.ActivityStreamsBlock) {
@@ -364,6 +475,12 @@ func (tr *TestRunner) LogFederatingBlock(c context.Context, v vocab.ActivityStre
 		key := tr.awaitFederatedCoreActivity
 		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
 		tr.awaitFederatedCoreActivity = ""
+		tr.ctx.InstructionDone()
+	}
+	if len(tr.awaitFederatedCoreActivityBlock) > 0 {
+		key := tr.awaitFederatedCoreActivityBlock
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivityBlock = ""
 		tr.ctx.InstructionDone()
 	}
 }
