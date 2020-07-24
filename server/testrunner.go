@@ -28,18 +28,19 @@ type TestRunner struct {
 	cancel context.CancelFunc
 	ctx    *TestRunnerContext
 	// Flag bits used for synchronizing AP hook behaviors
-	hookSyncMu                       sync.Mutex
-	awaitFederatedCoreActivity       string
-	awaitFederatedCoreActivityCreate string
-	awaitFederatedCoreActivityUpdate string
-	awaitFederatedCoreActivityDelete string
-	awaitFederatedCoreActivityFollow string
-	awaitFederatedCoreActivityAdd    string
-	awaitFederatedCoreActivityRemove string
-	awaitFederatedCoreActivityLike   string
-	awaitFederatedCoreActivityBlock  string
-	awaitFederatedCoreActivityUndo   string
-	httpSigsMustMatchRemoteActor     bool
+	hookSyncMu                                    sync.Mutex
+	awaitFederatedCoreActivity                    string
+	awaitFederatedCoreActivityCreate              string
+	awaitFederatedCoreActivityUpdate              string
+	awaitFederatedCoreActivityDelete              string
+	awaitFederatedCoreActivityFollow              string
+	awaitFederatedCoreActivityAdd                 string
+	awaitFederatedCoreActivityRemove              string
+	awaitFederatedCoreActivityLike                string
+	awaitFederatedCoreActivityBlock               string
+	awaitFederatedCoreActivityUndo                string
+	awaitFederatedCoreActivityMaybeDoubleDelivery string
+	httpSigsMustMatchRemoteActor                  bool
 }
 
 func NewTestRunner(sh ServerHandler, tests []Test) *TestRunner {
@@ -202,6 +203,29 @@ func (tr *TestRunner) ExpectFederatedCoreActivityUndo(keyID string) {
 	tr.awaitFederatedCoreActivityUndo = keyID
 }
 
+func (tr *TestRunner) ExpectFederatedCoreActivityCheckDoubleDelivery(keyID string) {
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	tr.awaitFederatedCoreActivityMaybeDoubleDelivery = keyID
+}
+
+func (tr *TestRunner) ClearExpectations() {
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	tr.awaitFederatedCoreActivity = ""
+	tr.awaitFederatedCoreActivityCreate = ""
+	tr.awaitFederatedCoreActivityUpdate = ""
+	tr.awaitFederatedCoreActivityDelete = ""
+	tr.awaitFederatedCoreActivityFollow = ""
+	tr.awaitFederatedCoreActivityAdd = ""
+	tr.awaitFederatedCoreActivityRemove = ""
+	tr.awaitFederatedCoreActivityLike = ""
+	tr.awaitFederatedCoreActivityBlock = ""
+	tr.awaitFederatedCoreActivityUndo = ""
+	tr.awaitFederatedCoreActivityMaybeDoubleDelivery = ""
+	tr.httpSigsMustMatchRemoteActor = false
+}
+
 func (tr *TestRunner) LogAuthenticateGetInbox(c context.Context, w http.ResponseWriter, r *http.Request, authenticated bool, err error) {
 	tr.raw.Add("LogAuthenticateGetInbox", c, w, r, authenticated, err)
 }
@@ -268,6 +292,31 @@ func (tr *TestRunner) LogSocialBlock(c context.Context, v vocab.ActivityStreamsB
 
 func (tr *TestRunner) LogPostInboxRequestBodyHook(c context.Context, r *http.Request, activity pub.Activity) {
 	tr.raw.Add("LogPostInboxRequestBodyHook", c, r, activity)
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	if len(tr.awaitFederatedCoreActivityMaybeDoubleDelivery) > 0 {
+		tr.raw.Add("Checking double-delivery condition")
+		iri, err := pub.GetId(activity)
+		if err != nil {
+			tr.raw.Add("Error attempting to get the id of the activity", err)
+			return
+		}
+		key := tr.awaitFederatedCoreActivityMaybeDoubleDelivery
+		preIRI, err := getInstructionResponseAsDirectIRI(tr.ctx, key)
+		if err != nil {
+			tr.raw.Add("First time seeing activity with id, because error returned", iri, err)
+			tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		} else if preIRI.String() == iri.String() {
+			tr.raw.Add("Second time seeing activity with the same id", iri)
+			tr.awaitFederatedCoreActivityMaybeDoubleDelivery = ""
+			tr.ctx.C = context.WithValue(tr.ctx.C, key, []*url.URL{preIRI, iri})
+		} else {
+			tr.raw.Add("Second time seeing activity, with different ids", iri, preIRI)
+			tr.awaitFederatedCoreActivityMaybeDoubleDelivery = ""
+			tr.ctx.C = context.WithValue(tr.ctx.C, key, []*url.URL{preIRI, iri})
+		}
+		tr.ctx.InstructionDone()
+	}
 }
 
 func (tr *TestRunner) LogAuthenticatePostInbox(c context.Context, w http.ResponseWriter, r *http.Request, remoteActor *url.URL, authenticated bool, err error) {

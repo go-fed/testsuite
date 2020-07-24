@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/go-fed/activity/pub"
 	"github.com/go-fed/activity/streams"
@@ -76,6 +77,7 @@ const (
 	kServerBlockActivityKeyId           = "instruction_key_federated_block_activity"
 	kServerBlockActivityDoneKeyId       = "instruction_key_federated_block_activity_done"
 	kServerUndoActivityKeyId            = "instruction_key_federated_undo_activity"
+	kServerDoubleDeliverActivityKeyId   = "instruction_key_federated_double_deliver_activity"
 )
 
 type instructionResponse struct {
@@ -104,6 +106,8 @@ type APHooks interface {
 	ExpectFederatedCoreActivityLike(keyID string)
 	ExpectFederatedCoreActivityBlock(keyID string)
 	ExpectFederatedCoreActivityUndo(keyID string)
+	ExpectFederatedCoreActivityCheckDoubleDelivery(keyID string)
+	ClearExpectations()
 }
 
 type actorIDs struct {
@@ -544,6 +548,7 @@ const (
 	kServerDeliversLikeWithObject                   = "Delivers Like With Object"
 	kServerDeliversBlockWithObject                  = "Delivers Block With Object"
 	kServerDeliversUndoWithObject                   = "Delivers Undo With Object"
+	kServerDoesNotDoubleDeliver                     = "Does Not Double-Deliver The Same Activity"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -592,6 +597,16 @@ func hasAnyInstructionKey(ctx *TestRunnerContext, test string, keyID string, ski
 
 func hasSkippedTestName(ctx *TestRunnerContext, test string) bool {
 	return ctx.C.Value(test+kSkipKeyIdSuffix) != nil
+}
+
+func getInstructionResponseAsSliceOfIRIs(ctx *TestRunnerContext, keyID string) (iris []*url.URL, err error) {
+	var ok bool
+	iris, ok = ctx.C.Value(keyID).([]*url.URL)
+	if !ok {
+		err = fmt.Errorf("cannot get instruction key as []*url.URL: %s", keyID)
+		return
+	}
+	return
 }
 
 func getInstructionResponseAsDirectIRI(ctx *TestRunnerContext, keyID string) (iri *url.URL, err error) {
@@ -1295,6 +1310,7 @@ func newFederatingTests() []Test {
 				if !hasAnyInstructionKey(ctx, kServerDeliversOutboxActivities, kDeliveredFederatedActivity1KeyId, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDeliversOutboxActivities) {
+					ctx.APH.ClearExpectations()
 					me.R.Add("Skipping: Instructions were skipped")
 					me.State = TestResultInconclusive
 					return true
@@ -1481,6 +1497,7 @@ func newFederatingTests() []Test {
 				if !hasAnyInstructionKey(ctx, kServerDeliversActivityTo, kDeliveredFederatedActivityToKeyId, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDeliversActivityTo) {
+					ctx.APH.ClearExpectations()
 					me.R.Add("Skipping: Instructions were skipped")
 					me.State = TestResultInconclusive
 					return true
@@ -1572,6 +1589,7 @@ func newFederatingTests() []Test {
 				if !hasAnyInstructionKey(ctx, kServerDeliversActivityCc, kDeliveredFederatedActivityCcKeyId, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDeliversActivityCc) {
+					ctx.APH.ClearExpectations()
 					me.R.Add("Skipping: Instructions were skipped")
 					me.State = TestResultInconclusive
 					return true
@@ -1663,6 +1681,7 @@ func newFederatingTests() []Test {
 				if !hasAnyInstructionKey(ctx, kServerDeliversActivityBto, kDeliveredFederatedActivityBtoKeyId, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDeliversActivityBto) {
+					ctx.APH.ClearExpectations()
 					me.R.Add("Skipping: Instructions were skipped")
 					me.State = TestResultInconclusive
 					return true
@@ -1736,6 +1755,7 @@ func newFederatingTests() []Test {
 				if !hasAnyInstructionKey(ctx, kServerDeliversActivityBcc, kDeliveredFederatedActivityBccKeyId, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDeliversActivityBcc) {
+					ctx.APH.ClearExpectations()
 					me.R.Add("Skipping: Instructions were skipped")
 					me.State = TestResultInconclusive
 					return true
@@ -1872,6 +1892,7 @@ func newFederatingTests() []Test {
 				if !hasAnyInstructionKey(ctx, kServerDereferencesWithUserCreds, kRecurrenceDeliveredActivityKeyId, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDereferencesWithUserCreds) {
+					ctx.APH.ClearExpectations()
 					me.R.Add("Skipping: Instructions were skipped")
 					me.State = TestResultInconclusive
 					return true
@@ -2094,6 +2115,7 @@ func newFederatingTests() []Test {
 				if !hasAnyInstructionKey(ctx, kServerDeliversCreateWithObject, kServerCreateActivityKeyId, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDeliversCreateWithObject) {
+					ctx.APH.ClearExpectations()
 					me.R.Add("Skipping: Instructions were skipped")
 					me.State = TestResultInconclusive
 					return true
@@ -2135,6 +2157,7 @@ func newFederatingTests() []Test {
 				if !hasAnyInstructionKey(ctx, kServerDeliversUpdateWithObject, kServerUpdateActivityKeyId, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDeliversUpdateWithObject) {
+					ctx.APH.ClearExpectations()
 					me.R.Add("Skipping: Instructions were skipped")
 					me.State = TestResultInconclusive
 					return true
@@ -2176,6 +2199,7 @@ func newFederatingTests() []Test {
 				if !hasAnyInstructionKey(ctx, kServerDeliversDeleteWithObject, kServerDeleteActivityKeyId, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDeliversDeleteWithObject) {
+					ctx.APH.ClearExpectations()
 					me.R.Add("Skipping: Instructions were skipped")
 					me.State = TestResultInconclusive
 					return true
@@ -2217,6 +2241,7 @@ func newFederatingTests() []Test {
 				if !hasAnyInstructionKey(ctx, kServerDeliversFollowWithObject, kServerFollowActivityKeyId, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDeliversFollowWithObject) {
+					ctx.APH.ClearExpectations()
 					me.R.Add("Skipping: Instructions were skipped")
 					me.State = TestResultInconclusive
 					return true
@@ -2258,6 +2283,7 @@ func newFederatingTests() []Test {
 				if !hasAnyInstructionKey(ctx, kServerDeliversAddWithObjectAndTarget, kServerAddActivityKeyId, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDeliversAddWithObjectAndTarget) {
+					ctx.APH.ClearExpectations()
 					me.R.Add("Skipping: Instructions were skipped")
 					me.State = TestResultInconclusive
 					return true
@@ -2299,6 +2325,7 @@ func newFederatingTests() []Test {
 				if !hasAnyInstructionKey(ctx, kServerDeliversRemoveWithObjectAndTarget, kServerRemoveActivityKeyId, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDeliversRemoveWithObjectAndTarget) {
+					ctx.APH.ClearExpectations()
 					me.R.Add("Skipping: Instructions were skipped")
 					me.State = TestResultInconclusive
 					return true
@@ -2340,6 +2367,7 @@ func newFederatingTests() []Test {
 				if !hasAnyInstructionKey(ctx, kServerDeliversLikeWithObject, kServerLikeActivityKeyId, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDeliversLikeWithObject) {
+					ctx.APH.ClearExpectations()
 					me.R.Add("Skipping: Instructions were skipped")
 					me.State = TestResultInconclusive
 					return true
@@ -2384,6 +2412,7 @@ func newFederatingTests() []Test {
 				if !hasAnyInstructionKey(ctx, kServerDeliversBlockWithObject, kServerBlockActivityKeyId, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDeliversBlockWithObject) {
+					ctx.APH.ClearExpectations()
 					me.R.Add("Skipping: Instructions were skipped")
 					me.State = TestResultInconclusive
 					return true
@@ -2425,6 +2454,7 @@ func newFederatingTests() []Test {
 				if !hasAnyInstructionKey(ctx, kServerDeliversUndoWithObject, kServerUndoActivityKeyId, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDeliversUndoWithObject) {
+					ctx.APH.ClearExpectations()
 					me.R.Add("Skipping: Instructions were skipped")
 					me.State = TestResultInconclusive
 					return true
@@ -2435,7 +2465,83 @@ func newFederatingTests() []Test {
 			},
 		},
 
-		// TODO: Must: Prompt to send an activity to kActor0 & kActor0; check to ensure they are listed only once in activity
+		// Does Not Double-Deliver The Same Activity
+		//
+		// Requires:
+		// - Remote actor in the Database
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerDoesNotDoubleDeliver,
+			Description: "Deduplicates final recipient list",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				if !hasAnyRanResult(kGETActorTestName, existing) || !hasTestPass(kGETActorTestName, existing) {
+					return nil
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDoesNotDoubleDeliver, kServerDoubleDeliverActivityKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivityCheckDoubleDelivery(kServerDoubleDeliverActivityKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send an activity from %s to both %s and %s (the same actor twice)", ctx.TestRemoteActorID, ctx.TestActor0, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kServerDoubleDeliverActivityKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kGETActorTestName, existing) {
+					return false
+				} else if !hasTestPass(kGETActorTestName, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
+					me.State = TestResultInconclusive
+					return true
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDoesNotDoubleDeliver, kServerDoubleDeliverActivityKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDoesNotDoubleDeliver) {
+					ctx.APH.ClearExpectations()
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				// We don't have a good way to await for the possibility of the
+				// second activity to maybe come. So simply sleep an additional
+				// five seconds
+				me.R.Add("Sleep five seconds to await possibility of double-delivery")
+				time.Sleep(5 * time.Second)
+				// Must be called to clear overwrite condition
+				ctx.APH.ClearExpectations()
+				var iris []*url.URL
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kServerDoubleDeliverActivityKeyId)
+				if err != nil {
+					iris, err = getInstructionResponseAsSliceOfIRIs(ctx, kServerDoubleDeliverActivityKeyId)
+					if err != nil {
+						me.R.Add("Could not iri(s) for double-detection test: " + err.Error())
+						me.State = TestResultFail
+						return true
+					}
+				}
+				if len(iris) > 1 {
+					me.R.Add("Same activity received more than once.", len(iris))
+					me.State = TestResultFail
+				} else if iri != nil {
+					me.R.Add("Got the activity only once", iri)
+					me.State = TestResultPass
+				} else if len(iris) == 1 {
+					me.R.Add("Got the activity only once", iris[0])
+					me.State = TestResultPass
+				}
+				return true
+			},
+		},
+
 		// TODO: Must: Prompt to send an activity to testFederatingPeer & kActor0; check to ensure the sender is not listed in the 'to' nor 'cc'
 
 		// TODO: Should: Check the "Block" action above and see if it was actually delivered to us
