@@ -551,6 +551,7 @@ const (
 	kServerDeliversUndoWithObject                   = "Delivers Undo With Object"
 	kServerDoesNotDoubleDeliver                     = "Does Not Double-Deliver The Same Activity"
 	kServerDoesNotSelfAddress                       = "Does Not Self-Address An Activity"
+	kServerShouldNotDeliverBlocks                   = "Should Not Deliver Blocks"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -2411,7 +2412,7 @@ func newFederatingTests() []Test {
 			},
 			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
 				const skippable = true
-				if !hasAnyInstructionKey(ctx, kServerDeliversBlockWithObject, kServerBlockActivityKeyId, skippable) {
+				if !hasAnyInstructionKeys(ctx, kServerDeliversBlockWithObject, []string{kServerBlockActivityKeyId, kServerBlockActivityDoneKeyId}, skippable) {
 					return false
 				} else if hasSkippedTestName(ctx, kServerDeliversBlockWithObject) {
 					ctx.APH.ClearExpectations()
@@ -2419,8 +2420,13 @@ func newFederatingTests() []Test {
 					me.State = TestResultInconclusive
 					return true
 				}
-				me.R.Add("Callback was successfully called after examining the activity.")
-				me.State = TestResultPass
+				if hasAnyInstructionKey(ctx, kServerDeliversBlockWithObject, kServerBlockActivityDoneKeyId, skippable) {
+					me.R.Add("Done button pressed.")
+					me.State = TestResultPass
+				} else {
+					me.R.Add("Callback was successfully called after examining the activity.")
+					me.State = TestResultPass
+				}
 				return true
 			},
 		},
@@ -2649,7 +2655,36 @@ func newFederatingTests() []Test {
 			},
 		},
 
-		// TODO: Should: Check the "Block" action above and see if it was actually delivered to us
+		// Should Not Deliver Blocks
+		//
+		// Requires:
+		// - Delivers Block With Object
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerShouldNotDeliverBlocks,
+			Description: "Delivers activity with 'object' property if the Activity type is a Block",
+			SpecKind:    TestSpecKindShould,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kServerDeliversBlockWithObject, existing) {
+					return false
+				} else if !hasTestPass(kServerDeliversBlockWithObject, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kServerDeliversBlockWithObject)
+					me.State = TestResultInconclusive
+					return true
+				}
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kServerBlockActivityKeyId)
+				if err == nil {
+					me.R.Add("Received a federated Block activity", iri)
+					me.State = TestResultFail
+				} else {
+					me.R.Add("Did not receive a federated Block activity")
+					me.State = TestResultPass
+				}
+				return true
+			},
+		},
 
 		// TODO: Must: Fetch remote peer's inbox and ensure every ID is unique
 
