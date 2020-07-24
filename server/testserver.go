@@ -356,6 +356,7 @@ func (ts *TestServer) newTestBundle(pathPrefix string, c2s, s2s, enableWebfinger
 	ctx := &TestRunnerContext{
 		TestRemoteActorID: testRemoteActorID,
 		Actor:             pfa,
+		Transporter:       actor,
 		DB:                db,
 		AM:                am,
 	}

@@ -95,6 +95,10 @@ type Instruction struct {
 	Resp         []instructionResponse
 }
 
+type Transporter interface {
+	NewTransport(context.Context, *url.URL, string) (pub.Transport, error)
+}
+
 type APHooks interface {
 	ExpectFederatedCoreActivity(keyID string)
 	ExpectFederatedCoreActivityHTTPSigsMustMatchTestRemoteActor(keyID string)
@@ -143,6 +147,7 @@ type TestRunnerContext struct {
 	// Set by the server
 	TestRemoteActorID     *url.URL
 	Actor                 pub.FederatingActor
+	Transporter           Transporter
 	DB                    *Database
 	AM                    *ActorMapping
 	TestActor0            actorIDs
@@ -552,6 +557,7 @@ const (
 	kServerDoesNotDoubleDeliver                     = "Does Not Double-Deliver The Same Activity"
 	kServerDoesNotSelfAddress                       = "Does Not Self-Address An Activity"
 	kServerShouldNotDeliverBlocks                   = "Should Not Deliver Blocks"
+	kDeliverCreateArticlesToTestPeer                = "Delivers Create Activity For Article To Federated Peer"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -2682,6 +2688,110 @@ func newFederatingTests() []Test {
 					me.R.Add("Did not receive a federated Block activity")
 					me.State = TestResultPass
 				}
+				return true
+			},
+		},
+
+		// Delivers Create Activity For Article To Federated Peer
+		//
+		// Requires:
+		// - Remote actor in the Database
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kDeliverCreateArticlesToTestPeer,
+			Description: "Deliver Create-Articles To Federated Peer",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kGETActorTestName, existing) {
+					return false
+				} else if !hasTestPass(kGETActorTestName, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
+					me.State = TestResultInconclusive
+					return true
+				}
+				done, at := me.helperMustGetFromDatabase(ctx, ctx.TestRemoteActorID)
+				if done {
+					return true
+				}
+				done, actor := me.helperToActor(ctx, at)
+				if done {
+					return true
+				}
+				inbox := actor.GetActivityStreamsInbox()
+				if inbox == nil {
+					me.R.Add("Actor at IRI does not have an inbox: ", ctx.TestRemoteActorID)
+					me.State = TestResultFail
+					return true
+				}
+				peerInboxIRI, err := pub.ToId(inbox)
+				if err != nil {
+					me.R.Add("Could not determine the ID of the actor's inbox: ", err)
+					me.State = TestResultFail
+					return true
+				}
+				outboxIRI := ActorIRIToOutboxIRI(ctx.TestActor1.ActivityPubIRI)
+				// Construct an article to send.
+				article := streams.NewActivityStreamsArticle()
+				cp := streams.NewActivityStreamsContentProperty()
+				cp.AppendXMLSchemaString("<html><body>Hello, world!</body></html>")
+				article.SetActivityStreamsContent(cp)
+				mediaType := streams.NewActivityStreamsMediaTypeProperty()
+				mediaType.Set("text/html; charset=utf-8")
+				article.SetActivityStreamsMediaType(mediaType)
+				attrTo := streams.NewActivityStreamsAttributedToProperty()
+				attrTo.AppendIRI(ctx.TestActor1.ActivityPubIRI)
+				article.SetActivityStreamsAttributedTo(attrTo)
+				toProp := streams.NewActivityStreamsToProperty()
+				publicIRI, err := url.Parse(pub.PublicActivityPubIRI)
+				if err != nil {
+					me.R.Add("Could not parse public activity IRI", err)
+					me.State = TestResultFail
+					return true
+				}
+				toProp.AppendIRI(publicIRI)
+				toProp.AppendIRI(ctx.TestRemoteActorID)
+				article.SetActivityStreamsTo(toProp)
+				const n = 3
+				var sa pub.Activity
+				var b []byte
+				tp, err := ctx.Transporter.NewTransport(ctx.C, outboxIRI, "go-fed")
+				if err != nil {
+					me.R.Add("Could not build a new transport", err)
+					me.State = TestResultFail
+					return true
+				}
+				for i := 0; i < n; i++ {
+					if i == 0 {
+						sa, err = ctx.Actor.Send(ctx.C, outboxIRI, article)
+					} else {
+						// Resend same activity, to ensure it is
+						// deduplicated by peer
+						err = tp.Deliver(ctx.C, b, peerInboxIRI)
+					}
+					if err != nil {
+						me.R.Add("Could not deliver activity to the test actor", err)
+						me.State = TestResultFail
+						return true
+					} else if i == 0 {
+						m, err := streams.Serialize(sa)
+						if err != nil {
+							me.R.Add("Could not serialize activity", err)
+							me.State = TestResultFail
+							return true
+						}
+						b, err = json.Marshal(m)
+						if err != nil {
+							me.R.Add("Could not JSON Marshal activity", err)
+							me.State = TestResultFail
+							return true
+						}
+					}
+					me.R.Add("Successfully sent the (re)sent the same activity", i, sa)
+				}
+				me.R.Add(fmt.Sprintf("Successfully sent the same activity %d times", n))
+				me.State = TestResultPass
 				return true
 			},
 		},

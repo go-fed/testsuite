@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/x509"
@@ -10,6 +11,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-fed/activity/pub"
@@ -93,13 +96,64 @@ func (p PlainTransport) Dereference(c context.Context, iri *url.URL) ([]byte, er
 	return ioutil.ReadAll(resp.Body)
 }
 
+// isSuccess returns true if the HTTP status code is either OK, Created, or
+// Accepted.
+func isSuccess(code int) bool {
+	return code == http.StatusOK ||
+		code == http.StatusCreated ||
+		code == http.StatusAccepted
+}
+
 func (p PlainTransport) Deliver(c context.Context, b []byte, to *url.URL) error {
-	// TODO
+	req, err := http.NewRequest("POST", to.String(), bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req = req.WithContext(c)
+	req.Header.Add("Content-Type", "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"")
+	req.Header.Add("Accept-Charset", "utf-8")
+	req.Header.Add("Date", time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05")+" GMT")
+	req.Header.Add("User-Agent", fmt.Sprintf("%s %s", p.appAgent))
+	if err != nil {
+		return err
+	}
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if !isSuccess(resp.StatusCode) {
+		return fmt.Errorf("POST request to %s failed (%d): %s", to.String(), resp.StatusCode, resp.Status)
+	}
 	return nil
 }
 
 func (p PlainTransport) BatchDeliver(c context.Context, b []byte, recipients []*url.URL) error {
-	// TODO
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(recipients))
+	for _, recipient := range recipients {
+		wg.Add(1)
+		go func(r *url.URL) {
+			defer wg.Done()
+			if err := p.Deliver(c, b, r); err != nil {
+				errCh <- err
+			}
+		}(recipient)
+	}
+	wg.Wait()
+	errs := make([]string, 0, len(recipients))
+outer:
+	for {
+		select {
+		case e := <-errCh:
+			errs = append(errs, e.Error())
+		default:
+			break outer
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("batch deliver had at least one failure: %s", strings.Join(errs, "; "))
+	}
 	return nil
 }
 
