@@ -78,6 +78,7 @@ const (
 	kServerBlockActivityDoneKeyId       = "instruction_key_federated_block_activity_done"
 	kServerUndoActivityKeyId            = "instruction_key_federated_undo_activity"
 	kServerDoubleDeliverActivityKeyId   = "instruction_key_federated_double_deliver_activity"
+	kServerSelfDeliverActivityKeyId     = "instruction_key_federated_self_deliver_activity"
 )
 
 type instructionResponse struct {
@@ -549,6 +550,7 @@ const (
 	kServerDeliversBlockWithObject                  = "Delivers Block With Object"
 	kServerDeliversUndoWithObject                   = "Delivers Undo With Object"
 	kServerDoesNotDoubleDeliver                     = "Does Not Double-Deliver The Same Activity"
+	kServerDoesNotSelfAddress                       = "Does Not Self-Address An Activity"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -2542,7 +2544,110 @@ func newFederatingTests() []Test {
 			},
 		},
 
-		// TODO: Must: Prompt to send an activity to testFederatingPeer & kActor0; check to ensure the sender is not listed in the 'to' nor 'cc'
+		// Does Not Self-Address An Activity
+		//
+		// Requires:
+		// - Remote actor in the Database
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerDoesNotSelfAddress,
+			Description: "Does not deliver to recipients which are the same as the actor of the Activity being notified about",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				if !hasAnyRanResult(kGETActorTestName, existing) || !hasTestPass(kGETActorTestName, existing) {
+					return nil
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDoesNotSelfAddress, kServerSelfDeliverActivityKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivity(kServerSelfDeliverActivityKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send an activity from %s to both %s and %s, which attempts to send an activity to the sending actor", ctx.TestRemoteActorID, ctx.TestActor0, ctx.TestRemoteActorID),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kServerSelfDeliverActivityKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kGETActorTestName, existing) {
+					return false
+				} else if !hasTestPass(kGETActorTestName, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
+					me.State = TestResultInconclusive
+					return true
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerDoesNotSelfAddress, kServerSelfDeliverActivityKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerDoesNotSelfAddress) {
+					ctx.APH.ClearExpectations()
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kServerDoesNotSelfAddress)
+				if err != nil {
+					me.R.Add("Could not obtain activity iri for self-address test: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				done, at := me.helperMustGetFromDatabase(ctx, iri)
+				if done {
+					return true
+				}
+				me.R.Add("Found activity in database", at)
+				activity, ok := at.(pub.Activity)
+				if !ok {
+					me.R.Add("Could not resolve to the pub.Activity type", iri)
+					me.State = TestResultFail
+					return true
+				}
+				found := false
+				to := activity.GetActivityStreamsTo()
+				if to != nil {
+					for iter := to.Begin(); iter != to.End(); iter = iter.Next() {
+						toIRI, err := pub.ToId(iter)
+						if err != nil {
+							me.R.Add("Could not convert a `to` value to an IRI")
+							me.State = TestResultFail
+							return true
+						}
+						if toIRI.String() == ctx.TestRemoteActorID.String() {
+							found = true
+							break
+						}
+					}
+				}
+				cc := activity.GetActivityStreamsCc()
+				if cc != nil {
+					for iter := cc.Begin(); iter != cc.End(); iter = iter.Next() {
+						ccIRI, err := pub.ToId(iter)
+						if err != nil {
+							me.R.Add("Could not convert a `cc` value to an IRI")
+							me.State = TestResultFail
+							return true
+						}
+						if ccIRI.String() == ctx.TestRemoteActorID.String() {
+							found = true
+							break
+						}
+					}
+				}
+				if found {
+					me.R.Add("The activity self addressed to the test actor", iri)
+					me.State = TestResultFail
+				} else {
+					me.R.Add("The activity did not self address to the test actor", iri)
+					me.State = TestResultPass
+				}
+				return true
+			},
+		},
 
 		// TODO: Should: Check the "Block" action above and see if it was actually delivered to us
 
