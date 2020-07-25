@@ -2800,6 +2800,32 @@ func newFederatingTests() []Test {
 
 		// TODO: We need to note to the test end-user that shared-inbox tests are NOT supported.
 
+		// TODO: Should: Add the actor to the object user's Followers Collection.
+		// Have kActor1 follow federated peer
+		// Have kActor2 follow federated peer
+		// TODO: Should: Generates either an Accept or Reject activity with Follow as object and deliver to actor of the Follow
+		// Receive an Accept for kActor1
+		// Receive a Reject for kActor2
+		// Then check the followers collection to see if kActor1 is there (and kActor2 is not)
+		// TODO: Should: If in reply to a Follow activity, adds actor to receiver's Following Collection
+		// Prompt peer actor to follow kActor3
+		// Send accept for kActor3
+		// Then check peers' following collection to see if kActor3 is there
+		// TODO: Must: If in reply to a Follow activity, MUST NOT add actor to receiver's Following Collection
+		// Prompt peer actor to follow kActor0
+		// Send reject for kActor0
+		// Then check peers' following collection to ensure kActor0 is NOT there
+
+		// TODO: Must: Forwards incoming activities to the values of to, bto, cc, bcc, audience if and only if criteria in 7.1.2 are met.
+		// By sending an activity to a peer that CC's followers (kActor1), and a non-following actor (kActor 2)
+
+		// TODO: Must: Take care to be sure that the Update is authorized to modify its object
+		// By re-sending an updated Article created in kDeliverCreateArticlesToTestPeer but from kActor0 instead of kActor1,
+		// prompt the peer software to say whether the update was successful or not.
+		// TODO: Should: Completely replace its copy of the activity with the newly received value
+		// By re-sending an updated Article created in kDeliverCreateArticlesToTestPeer from kActor1,
+		// prompt the peer software to say whether the update was successful or not.
+
 		// TODO: Non-Normative: Server filters incoming content both by local untrusted users and any remote users through some sort of spam filter
 		// TODO: Non-Normative: By default, implementation does not make HTTP requests to localhost when delivering Activities
 		// TODO: Non-Normative: Implementation applies a whitelist of allowed URI protocols before issuing requests, e.g. for inbox delivery
