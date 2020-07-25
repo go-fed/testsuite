@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/go-fed/activity/pub"
@@ -46,6 +47,7 @@ const (
 	checkBoxInstructionResponse                           = "checkbox"
 	labelOnlyInstructionResponse                          = "label_only"
 	doneButtonInstructionResponse                         = "done_button"
+	numberInstructionResponse                             = "number"
 )
 
 // Key IDs of user-submitted responses to instructions.
@@ -79,6 +81,7 @@ const (
 	kServerUndoActivityKeyId            = "instruction_key_federated_undo_activity"
 	kServerDoubleDeliverActivityKeyId   = "instruction_key_federated_double_deliver_activity"
 	kServerSelfDeliverActivityKeyId     = "instruction_key_federated_self_deliver_activity"
+	kNumDuplicateActivitiesKeyId        = "instruction_key_federated_duplicate_activity_num"
 )
 
 type instructionResponse struct {
@@ -558,6 +561,7 @@ const (
 	kServerDoesNotSelfAddress                       = "Does Not Self-Address An Activity"
 	kServerShouldNotDeliverBlocks                   = "Should Not Deliver Blocks"
 	kDeliverCreateArticlesToTestPeer                = "Delivers Create Activity For Article To Federated Peer"
+	kDedupedActorInboxTestName                      = "Dedupes Actor Inbox"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -624,6 +628,22 @@ func getInstructionResponseAsDirectIRI(ctx *TestRunnerContext, keyID string) (ir
 	if !ok {
 		err = fmt.Errorf("cannot get instruction key as *url.URL: %s", keyID)
 		return
+	}
+	return
+}
+
+func getInstructionResponseAsNonNegativeInt(ctx *TestRunnerContext, keyID string) (n int, err error) {
+	var s string
+	s, err = getInstructionResponseAsOnlyString(ctx, keyID)
+	if err != nil {
+		return
+	}
+	n, err = strconv.Atoi(s)
+	if err != nil {
+		return
+	}
+	if n < 0 {
+		err = fmt.Errorf("%s is negative: %d", keyID, n)
 	}
 	return
 }
@@ -2796,7 +2816,65 @@ func newFederatingTests() []Test {
 			},
 		},
 
-		// TODO: Must: Fetch remote peer's inbox and ensure every ID is unique
+		// Dedupes Actor Inbox
+		//
+		// Requires:
+		// - Actor in the Database
+		// - We sent activities to peer
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kDedupedActorInboxTestName,
+			Description: "Deduplicates activities returned by the inbox by comparing activity ids",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				if !hasAnyRanResult(kGETActorTestName, existing) || !hasTestPass(kGETActorTestName, existing) ||
+					!hasAnyRanResult(kDeliverCreateArticlesToTestPeer, existing) || !hasTestPass(kDeliverCreateArticlesToTestPeer, existing) {
+					return nil
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kDedupedActorInboxTestName, kNumDuplicateActivitiesKeyId, skippable) {
+					return &Instruction{
+						Instructions: fmt.Sprintf("How many activities are in the inbox for %s from %s?", ctx.TestRemoteActorID, ctx.TestActor1),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kNumDuplicateActivitiesKeyId,
+							Type: numberInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kGETActorTestName, existing) {
+					return false
+				} else if !hasAnyRanResult(kDeliverCreateArticlesToTestPeer, existing) {
+					return false
+				} else if !hasTestPass(kGETActorTestName, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
+					me.State = TestResultInconclusive
+					return true
+				} else if !hasTestPass(kDeliverCreateArticlesToTestPeer, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kDeliverCreateArticlesToTestPeer)
+					me.State = TestResultInconclusive
+					return true
+				}
+				n, err := getInstructionResponseAsNonNegativeInt(ctx, kNumDuplicateActivitiesKeyId)
+				if err == nil {
+					me.R.Add("Error processing instructions", err)
+					me.State = TestResultFail
+					return true
+				} else if n != 1 {
+					me.R.Add("Did not deduplicate the same activity in the inbox", n)
+					me.State = TestResultFail
+					return true
+				}
+				me.R.Add("Peer deduplicated the delivery to just one activity")
+				me.State = TestResultPass
+				return true
+			},
+		},
 
 		// TODO: We need to note to the test end-user that shared-inbox tests are NOT supported.
 
