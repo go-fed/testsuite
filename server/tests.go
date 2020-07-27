@@ -3231,7 +3231,7 @@ func newFederatingTests() []Test {
 		// - N/A
 		&baseTest{
 			TestName:    kGETFollowersCollection,
-			Description: "Server responds to GET request at followers URL",
+			Description: "Server responds to GET request at followers URL & has the appropriate test actors",
 			SpecKind:    TestSpecKindShould,
 			R:           NewRecorder(),
 			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
