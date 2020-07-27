@@ -82,6 +82,10 @@ const (
 	kServerDoubleDeliverActivityKeyId   = "instruction_key_federated_double_deliver_activity"
 	kServerSelfDeliverActivityKeyId     = "instruction_key_federated_self_deliver_activity"
 	kNumDuplicateActivitiesKeyId        = "instruction_key_federated_duplicate_activity_num"
+	kSentAcceptFollowKeyId              = "instruction_key_federated_sent_follow_for_accept"
+	kAcceptFollowKeyId                  = "instruction_key_federated_accept_follow"
+	kSentRejectFollowKeyId              = "instruction_key_federated_sent_follow_for_reject"
+	kRejectFollowKeyId                  = "instruction_key_federated_reject_follow"
 )
 
 type instructionResponse struct {
@@ -109,6 +113,8 @@ type APHooks interface {
 	ExpectFederatedCoreActivityUpdate(keyID string)
 	ExpectFederatedCoreActivityDelete(keyID string)
 	ExpectFederatedCoreActivityFollow(keyID string)
+	ExpectFederatedCoreActivityAccept(keyID string)
+	ExpectFederatedCoreActivityReject(keyID string)
 	ExpectFederatedCoreActivityAdd(keyID string)
 	ExpectFederatedCoreActivityRemove(keyID string)
 	ExpectFederatedCoreActivityLike(keyID string)
@@ -518,6 +524,73 @@ func (b *baseTest) helperOrderedItemsHasIRI(ctx *TestRunnerContext, toFind, exam
 	return
 }
 
+func (b *baseTest) helperCollectionToIRIs(ctx *TestRunnerContext, t vocab.Type) (done bool, iris []*url.URL) {
+	// TODO: Handle pagination
+	done = false
+	var c vocab.ActivityStreamsCollection
+	var oc vocab.ActivityStreamsOrderedCollection
+	c, _ = t.(vocab.ActivityStreamsCollection)
+	oc, _ = t.(vocab.ActivityStreamsOrderedCollection)
+	if c != nil {
+		it := c.GetActivityStreamsItems()
+		if it == nil {
+			b.R.Add("OrderedCollection has no 'items' property")
+			b.State = TestResultFail
+			done = true
+			return
+		}
+		iter := it.Begin()
+		done, iris = b.helperIdPropertyToIRIs(ctx, func() pub.IdProperty {
+			ret := iter
+			if ret == it.End() {
+				ret = nil
+			} else {
+				iter = iter.Next()
+			}
+			return ret
+		})
+	} else if oc != nil {
+		oit := oc.GetActivityStreamsOrderedItems()
+		if oit == nil {
+			b.R.Add("OrderedCollection has no 'orderedItems' property")
+			b.State = TestResultFail
+			done = true
+			return
+		}
+		iter := oit.Begin()
+		done, iris = b.helperIdPropertyToIRIs(ctx, func() pub.IdProperty {
+			ret := iter
+			if ret == oit.End() {
+				ret = nil
+			} else {
+				iter = iter.Next()
+			}
+			return ret
+		})
+	} else {
+		b.R.Add("ActivityStreams Type is neither a Collection nor OrderedCollection", t)
+		b.State = TestResultFail
+		done = true
+	}
+	return
+}
+
+func (b *baseTest) helperIdPropertyToIRIs(ctx *TestRunnerContext, f func() pub.IdProperty) (done bool, iris []*url.URL) {
+	done = false
+	i := f()
+	for i != nil {
+		iri, err := pub.ToId(i)
+		if err != nil {
+			b.R.Add("Cannot find the id of an element")
+			b.State = TestResultFail
+			done = true
+		}
+		iris = append(iris, iri)
+		i = f()
+	}
+	return
+}
+
 /* TEST HELPERS & CONSTANTS */
 
 const (
@@ -562,6 +635,11 @@ const (
 	kServerShouldNotDeliverBlocks                   = "Should Not Deliver Blocks"
 	kDeliverCreateArticlesToTestPeer                = "Delivers Create Activity For Article To Federated Peer"
 	kDedupedActorInboxTestName                      = "Dedupes Actor Inbox"
+	kSendFollowRequestForAcceptance                 = "Send A Follow Request For Acceptance"
+	kServerAcceptsFollowRequest                     = "Accept A Follow Request"
+	kSendFollowRequestForRejecting                  = "Send A Follow Request For Rejecting"
+	kServerRejectsFollowRequest                     = "Reject A Follow Request"
+	kGETFollowersCollection                         = "GET Followers Collection"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -2876,15 +2954,380 @@ func newFederatingTests() []Test {
 			},
 		},
 
-		// TODO: We need to note to the test end-user that shared-inbox tests are NOT supported.
+		// Send A Follow Request For Acceptance
+		//
+		// Requires:
+		// - N/A
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kSendFollowRequestForAcceptance,
+			Description: "Can deliver a follow request to the federated peer, for acceptance",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				// Get our information
+				outboxIRI := ActorIRIToOutboxIRI(ctx.TestActor1.ActivityPubIRI)
+				// Construct a Follow to send
+				follow := streams.NewActivityStreamsFollow()
+				attrTo := streams.NewActivityStreamsAttributedToProperty()
+				attrTo.AppendIRI(ctx.TestActor1.ActivityPubIRI)
+				follow.SetActivityStreamsAttributedTo(attrTo)
+				actorp := streams.NewActivityStreamsActorProperty()
+				actorp.AppendIRI(ctx.TestActor1.ActivityPubIRI)
+				follow.SetActivityStreamsActor(actorp)
+				objp := streams.NewActivityStreamsObjectProperty()
+				objp.AppendIRI(ctx.TestRemoteActorID)
+				follow.SetActivityStreamsObject(objp)
+				toProp := streams.NewActivityStreamsToProperty()
+				toProp.AppendIRI(ctx.TestRemoteActorID)
+				follow.SetActivityStreamsTo(toProp)
+				// Send the Follow to the peer
+				sa, err := ctx.Actor.Send(ctx.C, outboxIRI, follow)
+				if err != nil {
+					me.R.Add("Could not deliver activity to the test actor", err)
+					me.State = TestResultFail
+					return true
+				}
+				newIRI, err := pub.GetId(sa)
+				if err != nil {
+					me.R.Add("Could not obtain sent activity iri: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				ctx.C = context.WithValue(ctx.C, kSentAcceptFollowKeyId, newIRI)
+				me.R.Add(fmt.Sprintf("Successfully sent the follow request", sa))
+				me.State = TestResultPass
+				return true
+			},
+		},
 
-		// TODO: Should: Add the actor to the object user's Followers Collection.
-		// Have kActor1 follow federated peer
-		// Have kActor2 follow federated peer
-		// TODO: Should: Generates either an Accept or Reject activity with Follow as object and deliver to actor of the Follow
-		// Receive an Accept for kActor1
-		// Receive a Reject for kActor2
-		// Then check the followers collection to see if kActor1 is there (and kActor2 is not)
+		// Accept A Follow Request
+		//
+		// Requires:
+		// - N/A
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerAcceptsFollowRequest,
+			Description: "Accept A Follow Request",
+			SpecKind:    TestSpecKindShould,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				if !hasAnyRanResult(kSendFollowRequestForAcceptance, existing) || !hasTestPass(kSendFollowRequestForAcceptance, existing) {
+					return nil
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerAcceptsFollowRequest, kAcceptFollowKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivityAccept(kAcceptFollowKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please accept the follow request from %s to %s?", ctx.TestActor1, ctx.TestRemoteActorID),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kAcceptFollowKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				// Get the accept we received
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kAcceptFollowKeyId)
+				if err != nil {
+					me.R.Add("Could not obtain an activity iri: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				done, t := me.helperMustGetFromDatabase(ctx, iri)
+				if done {
+					return true
+				}
+				accept, ok := t.(vocab.ActivityStreamsAccept)
+				if !ok {
+					me.R.Add("Could not resolve Activity to an Accept", iri)
+					me.State = TestResultFail
+					return true
+				}
+				// Get the id of the activity we sent
+				firi, err := getInstructionResponseAsDirectIRI(ctx, kSentAcceptFollowKeyId)
+				if err != nil {
+					me.R.Add("Could not obtain our activity iri: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				// Ensure our follow is the object of the accept
+				obj := accept.GetActivityStreamsObject()
+				if obj == nil {
+					me.R.Add("Accept has no 'object' property")
+					me.State = TestResultFail
+					return true
+				}
+				found := false
+				for iter := obj.Begin(); iter != obj.End(); iter = iter.Next() {
+					iteriri, err := pub.ToId(iter)
+					if err != nil {
+						me.R.Add("Cannot get id of an element of the 'object' property")
+						me.State = TestResultFail
+						return true
+					}
+					if iteriri.String() == firi.String() {
+						found = true
+					} else {
+						me.R.Add("Warning: found an unexpected object", iteriri)
+					}
+				}
+				if found {
+					me.R.Add("Successfully received an Accept with the object as our Follow")
+					me.State = TestResultPass
+				} else {
+					me.R.Add("Did not find our Follow as an object of the Accept")
+					me.State = TestResultFail
+				}
+				return true
+			},
+		},
+
+		// Send A Follow Request For Rejection
+		//
+		// Requires:
+		// - N/A
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kSendFollowRequestForRejecting,
+			Description: "Can deliver a follow request to the federated peer, for rejection",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				// Get our information
+				outboxIRI := ActorIRIToOutboxIRI(ctx.TestActor2.ActivityPubIRI)
+				// Construct a Follow to send
+				follow := streams.NewActivityStreamsFollow()
+				attrTo := streams.NewActivityStreamsAttributedToProperty()
+				attrTo.AppendIRI(ctx.TestActor2.ActivityPubIRI)
+				follow.SetActivityStreamsAttributedTo(attrTo)
+				actorp := streams.NewActivityStreamsActorProperty()
+				actorp.AppendIRI(ctx.TestActor2.ActivityPubIRI)
+				follow.SetActivityStreamsActor(actorp)
+				objp := streams.NewActivityStreamsObjectProperty()
+				objp.AppendIRI(ctx.TestRemoteActorID)
+				follow.SetActivityStreamsObject(objp)
+				toProp := streams.NewActivityStreamsToProperty()
+				toProp.AppendIRI(ctx.TestRemoteActorID)
+				follow.SetActivityStreamsTo(toProp)
+				// Send the Follow to the peer
+				sa, err := ctx.Actor.Send(ctx.C, outboxIRI, follow)
+				if err != nil {
+					me.R.Add("Could not deliver activity to the test actor", err)
+					me.State = TestResultFail
+					return true
+				}
+				newIRI, err := pub.GetId(sa)
+				if err != nil {
+					me.R.Add("Could not obtain sent activity iri: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				ctx.C = context.WithValue(ctx.C, kSentRejectFollowKeyId, newIRI)
+				me.R.Add(fmt.Sprintf("Successfully sent the follow request", sa))
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Reject A Follow Request
+		//
+		// Requires:
+		// - N/A
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerRejectsFollowRequest,
+			Description: "Reject A Follow Request",
+			SpecKind:    TestSpecKindShould,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				if !hasAnyRanResult(kSendFollowRequestForRejecting, existing) || !hasTestPass(kSendFollowRequestForRejecting, existing) {
+					return nil
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerRejectsFollowRequest, kRejectFollowKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivityReject(kRejectFollowKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please reject the follow request from %s to %s?", ctx.TestActor2, ctx.TestRemoteActorID),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kRejectFollowKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				// Get the reject we received
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kRejectFollowKeyId)
+				if err != nil {
+					me.R.Add("Could not obtain an activity iri: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				done, t := me.helperMustGetFromDatabase(ctx, iri)
+				if done {
+					return true
+				}
+				reject, ok := t.(vocab.ActivityStreamsReject)
+				if !ok {
+					me.R.Add("Could not resolve Activity to an Reject", iri)
+					me.State = TestResultFail
+					return true
+				}
+				// Get the id of the activity we sent
+				firi, err := getInstructionResponseAsDirectIRI(ctx, kSentRejectFollowKeyId)
+				if err != nil {
+					me.R.Add("Could not obtain our activity iri: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				// Ensure our follow is the object of the reject
+				obj := reject.GetActivityStreamsObject()
+				if obj == nil {
+					me.R.Add("Reject has no 'object' property")
+					me.State = TestResultFail
+					return true
+				}
+				found := false
+				for iter := obj.Begin(); iter != obj.End(); iter = iter.Next() {
+					iteriri, err := pub.ToId(iter)
+					if err != nil {
+						me.R.Add("Cannot get id of an element of the 'object' property")
+						me.State = TestResultFail
+						return true
+					}
+					if iteriri.String() == firi.String() {
+						found = true
+					} else {
+						me.R.Add("Warning: found an unexpected object", iteriri)
+					}
+				}
+				if found {
+					me.R.Add("Successfully received an Reject with the object as our Follow")
+					me.State = TestResultPass
+				} else {
+					me.R.Add("Did not find our Follow as an object of the Reject")
+					me.State = TestResultFail
+				}
+				return true
+			},
+		},
+
+		// GET Followers Collection
+		//
+		// Requires:
+		// - Actor in the Database
+		// - Acceptance and/or Rejecting of Follow(s)
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kGETFollowersCollection,
+			Description: "Server responds to GET request at followers URL",
+			SpecKind:    TestSpecKindShould,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kGETActorTestName, existing) || !hasAnyRanResult(kServerAcceptsFollowRequest, existing) || !hasAnyRanResult(kServerRejectsFollowRequest, existing) {
+					return false
+				} else if !hasTestPass(kGETActorTestName, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
+					me.State = TestResultInconclusive
+					return true
+				}
+				checkAcceptActor1 := hasTestPass(kServerAcceptsFollowRequest, existing)
+				checkRejectActor2 := hasTestPass(kServerRejectsFollowRequest, existing)
+				if checkAcceptActor1 {
+					me.R.Add(fmt.Sprintf("Will check for accepted actor because previous test passed: %s", kServerAcceptsFollowRequest))
+				} else {
+					me.R.Add(fmt.Sprintf("Will not check for accepted actor because previous test did not pass: %s", kServerAcceptsFollowRequest))
+				}
+				if checkRejectActor2 {
+					me.R.Add(fmt.Sprintf("Will check for rejected actor because previous test passed: %s", kServerRejectsFollowRequest))
+				} else {
+					me.R.Add(fmt.Sprintf("Will not check for rejected actor because previous test did not pass: %s", kServerRejectsFollowRequest))
+				}
+				if !checkAcceptActor1 && !checkRejectActor2 {
+					me.R.Add("Skipping: dependency tests did not pass")
+					me.State = TestResultInconclusive
+					return true
+				}
+				// Get the actor followers IRI
+				done, at := me.helperMustGetFromDatabase(ctx, ctx.TestRemoteActorID)
+				if done {
+					return true
+				}
+				done, actor := me.helperToActor(ctx, at)
+				if done {
+					return true
+				}
+				f := actor.GetActivityStreamsFollowers()
+				if f == nil {
+					me.R.Add("Actor at IRI does not have a followers collection: ", ctx.TestRemoteActorID)
+					me.State = TestResultFail
+					return true
+				}
+				fid, err := pub.ToId(f)
+				if err != nil {
+					me.R.Add("Could not determine the ID of the actor's followers: ", err)
+					me.State = TestResultFail
+					return true
+				}
+				// Dereference the collection.
+				ptp := NewPlainTransport(me.R)
+				me.R.Add(fmt.Sprintf("About to dereference followers at %s", fid))
+				done, t := me.helperDereference(ctx, fid, ptp)
+				if done {
+					return true
+				}
+				done, iris := me.helperCollectionToIRIs(ctx, t)
+				if done {
+					return true
+				}
+				actor1Found := false
+				actor2Found := false
+				for _, iri := range iris {
+					if iri.String() == ctx.TestActor1.ActivityPubIRI.String() {
+						actor1Found = true
+					}
+					if iri.String() == ctx.TestActor2.ActivityPubIRI.String() {
+						actor2Found = true
+					}
+				}
+				a1pass := false
+				a2pass := false
+				if checkAcceptActor1 && actor1Found {
+					me.R.Add("Successfully found accepted-follow actor in the followers collection", ctx.TestActor1.ActivityPubIRI)
+					a1pass = true
+				} else if checkAcceptActor1 && !actor1Found {
+					me.R.Add("Failed by not finding the accepted-follow actor in the followers collection", ctx.TestActor1.ActivityPubIRI)
+				} else {
+					a1pass = true
+				}
+				if checkRejectActor2 && actor2Found {
+					me.R.Add("Failed by finding the rejected-follow actor in the followers collection", ctx.TestActor2.ActivityPubIRI)
+				} else if checkRejectActor2 && !actor2Found {
+					me.R.Add("Successfully did not find rejected-follow actor in the followers collection", ctx.TestActor2.ActivityPubIRI)
+					a2pass = true
+				} else {
+					a2pass = true
+				}
+				if a1pass && a2pass {
+					me.State = TestResultPass
+				} else {
+					me.State = TestResultFail
+				}
+				return true
+			},
+		},
+
 		// TODO: Should: If in reply to a Follow activity, adds actor to receiver's Following Collection
 		// Prompt peer actor to follow kActor3
 		// Send accept for kActor3
@@ -2903,6 +3346,8 @@ func newFederatingTests() []Test {
 		// TODO: Should: Completely replace its copy of the activity with the newly received value
 		// By re-sending an updated Article created in kDeliverCreateArticlesToTestPeer from kActor1,
 		// prompt the peer software to say whether the update was successful or not.
+
+		// TODO: We need to note to the test end-user that shared-inbox tests are NOT supported.
 
 		// TODO: Non-Normative: Server filters incoming content both by local untrusted users and any remote users through some sort of spam filter
 		// TODO: Non-Normative: By default, implementation does not make HTTP requests to localhost when delivering Activities

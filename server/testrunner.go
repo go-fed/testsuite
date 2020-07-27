@@ -34,6 +34,8 @@ type TestRunner struct {
 	awaitFederatedCoreActivityUpdate              string
 	awaitFederatedCoreActivityDelete              string
 	awaitFederatedCoreActivityFollow              string
+	awaitFederatedCoreActivityAccept              string
+	awaitFederatedCoreActivityReject              string
 	awaitFederatedCoreActivityAdd                 string
 	awaitFederatedCoreActivityRemove              string
 	awaitFederatedCoreActivityLike                string
@@ -171,6 +173,18 @@ func (tr *TestRunner) ExpectFederatedCoreActivityFollow(keyID string) {
 	tr.hookSyncMu.Lock()
 	defer tr.hookSyncMu.Unlock()
 	tr.awaitFederatedCoreActivityFollow = keyID
+}
+
+func (tr *TestRunner) ExpectFederatedCoreActivityAccept(keyID string) {
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	tr.awaitFederatedCoreActivityAccept = keyID
+}
+
+func (tr *TestRunner) ExpectFederatedCoreActivityReject(keyID string) {
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	tr.awaitFederatedCoreActivityReject = keyID
 }
 
 func (tr *TestRunner) ExpectFederatedCoreActivityAdd(keyID string) {
@@ -415,6 +429,52 @@ func (tr *TestRunner) LogFederatingFollow(c context.Context, v vocab.ActivityStr
 		key := tr.awaitFederatedCoreActivityFollow
 		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
 		tr.awaitFederatedCoreActivityFollow = ""
+		tr.ctx.InstructionDone()
+	}
+}
+
+func (tr *TestRunner) LogFederatingAccept(c context.Context, v vocab.ActivityStreamsAccept) {
+	tr.raw.Add("LogFederatingAccept", c, v)
+	iri, err := pub.GetId(v)
+	if err != nil {
+		tr.raw.Add("Could not get Accept iri: " + err.Error())
+		return
+	}
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	if len(tr.awaitFederatedCoreActivity) > 0 {
+		key := tr.awaitFederatedCoreActivity
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivity = ""
+		tr.ctx.InstructionDone()
+	}
+	if len(tr.awaitFederatedCoreActivityAccept) > 0 {
+		key := tr.awaitFederatedCoreActivityAccept
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivityAccept = ""
+		tr.ctx.InstructionDone()
+	}
+}
+
+func (tr *TestRunner) LogFederatingReject(c context.Context, v vocab.ActivityStreamsReject) {
+	tr.raw.Add("LogFederatingReject", c, v)
+	iri, err := pub.GetId(v)
+	if err != nil {
+		tr.raw.Add("Could not get Reject iri: " + err.Error())
+		return
+	}
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	if len(tr.awaitFederatedCoreActivity) > 0 {
+		key := tr.awaitFederatedCoreActivity
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivity = ""
+		tr.ctx.InstructionDone()
+	}
+	if len(tr.awaitFederatedCoreActivityReject) > 0 {
+		key := tr.awaitFederatedCoreActivityReject
+		tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
+		tr.awaitFederatedCoreActivityReject = ""
 		tr.ctx.InstructionDone()
 	}
 }

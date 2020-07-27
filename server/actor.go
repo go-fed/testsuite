@@ -161,6 +161,14 @@ func (a *Actor) FederatingCallbacks(c context.Context) (wrapped pub.FederatingWr
 			a.tr.LogFederatingFollow(c, v)
 			return nil
 		},
+		Accept: func(c context.Context, v vocab.ActivityStreamsAccept) error {
+			a.tr.LogFederatingAccept(c, v)
+			return nil
+		},
+		Reject: func(c context.Context, v vocab.ActivityStreamsReject) error {
+			a.tr.LogFederatingReject(c, v)
+			return nil
+		},
 		Add: func(c context.Context, v vocab.ActivityStreamsAdd) error {
 			a.tr.LogFederatingAdd(c, v)
 			return nil
