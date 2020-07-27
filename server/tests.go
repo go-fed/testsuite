@@ -613,6 +613,7 @@ const (
 	// Federated Tests
 	kServerDeliversOutboxActivities                 = "Delivers All Activities Posted In The Outbox"
 	kGETActorOutboxTestName                         = "GET Actor Outbox"
+	kServerOutboxDeliveredActivities                = "Outbox Contains Delivered Activities"
 	kServerDeliversActivityTo                       = "Uses `to` To Determine Delivery Recipients"
 	kServerDeliversActivityCc                       = "Uses `cc` To Determine Delivery Recipients"
 	kServerDeliversActivityBto                      = "Uses `bto` To Determine Delivery Recipients"
@@ -1496,7 +1497,7 @@ func newFederatingTests() []Test {
 			},
 		},
 
-		// Delivers All Activities Posted In The Outbox
+		// Outbox Contains Delivered Activities
 		//
 		// Requires:
 		// - Peer actor sent activity to us
@@ -1505,8 +1506,8 @@ func newFederatingTests() []Test {
 		// Side Effects:
 		// - N/a
 		&baseTest{
-			TestName:    kServerDeliversOutboxActivities,
-			Description: "Performs delivery on all Activities posted to the outbox",
+			TestName:    kServerOutboxDeliveredActivities,
+			Description: "The delivered activity is present in the actor's outbox",
 			SpecKind:    TestSpecKindMust,
 			R:           NewRecorder(),
 			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
@@ -1907,7 +1908,7 @@ func newFederatingTests() []Test {
 			SpecKind:    TestSpecKindMust,
 			R:           NewRecorder(),
 			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
-				if !hasAnyRanResult(kServerDeliversOutboxActivities, existing) ||
+				if !hasAnyRanResult(kServerOutboxDeliveredActivities, existing) ||
 					!hasAnyRanResult(kServerDeliversActivityTo, existing) ||
 					!hasAnyRanResult(kServerDeliversActivityCc, existing) ||
 					!hasAnyRanResult(kServerDeliversActivityBto, existing) ||
@@ -1915,7 +1916,7 @@ func newFederatingTests() []Test {
 					return false
 				}
 				var keysToExamine []string
-				if hasTestPass(kServerDeliversOutboxActivities, existing) {
+				if hasTestPass(kServerOutboxDeliveredActivities, existing) {
 					keysToExamine = append(keysToExamine, kDeliveredFederatedActivity1KeyId)
 				}
 				if hasTestPass(kServerDeliversActivityTo, existing) {
@@ -1932,7 +1933,7 @@ func newFederatingTests() []Test {
 				}
 				if len(keysToExamine) == 0 {
 					me.R.Add(fmt.Sprintf("Skipping: none of the dependency tests passed: [%s, %s, %s, %s, %s]",
-						kServerDeliversOutboxActivities,
+						kServerOutboxDeliveredActivities,
 						kServerDeliversActivityTo,
 						kServerDeliversActivityCc,
 						kServerDeliversActivityBto,
