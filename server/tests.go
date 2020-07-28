@@ -745,6 +745,7 @@ const (
 	kDidNotAddActorToFollowingCollection            = "Following Collection Does Not Have Rejected-Follow Actor"
 	kServerSendsActivityWithFollowersAddressed      = "Sends Activity With Followers Addressed"
 	kServerHandlesReplyRequiringInboxForwarding     = "Handles A Reply Requiring Inbox Fowarding"
+	kServerAppliedInboxForwarding                   = "Applied Inbox Fowarding"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -3852,8 +3853,56 @@ func newFederatingTests() []Test {
 			},
 		},
 
-		// TODO: Must: Forwards incoming activities to the values of to, bto, cc, bcc, audience if and only if criteria in 7.1.2 are met.
-		// By sending an activity to a peer that CC's followers (kActor1), and a non-following actor (kActor 2)
+		// Applied Inbox Fowarding
+		//
+		// Requires:
+		// - Handles A Reply Requiring Inbox Fowarding
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerAppliedInboxForwarding,
+			Description: "Forwarded the incoming activity to the followers.",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				// Well, uh, we don't have a good way to synchronize, so
+				// I guess we will sleep and give the federating peer time
+				// to do its thing.
+				time.Sleep(time.Second * 5)
+				// Ensure our activity was delivered to our follower, kActor1, in
+				// a peer's application of inbox forwarding.
+				// Fetch our activity IRI
+				iri, err := getInstructionResponseAsDirectIRI(ctx, kSentReplyForInboxForwardingKeyId)
+				if err != nil {
+					me.R.Add("Could not resolve the ID of the activity: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				// Get kActor1 Inbox
+				actor1InboxIRI := ActorIRIToInboxIRI(ctx.TestActor1.ActivityPubIRI)
+				me.R.Add("Getting inbox", actor1InboxIRI)
+				done, t1 := me.helperMustGetFromDatabase(ctx, actor1InboxIRI)
+				if done {
+					return true
+				}
+				done, oc1 := me.helperToOrderedCollectionOrPage(ctx, t1)
+				if done {
+					return true
+				}
+				oip := oc1.GetActivityStreamsOrderedItems()
+				done, found := me.helperOrderedItemsHasIRI(ctx, iri, actor1InboxIRI, oip)
+				if done {
+					return true
+				}
+				if !found {
+					me.R.Add("Could not find the activity IRI in the actor's inbox", iri, oc1)
+					me.State = TestResultFail
+					return true
+				}
+				me.State = TestResultPass
+				return true
+			},
+		},
 
 		// TODO: Must: Take care to be sure that the Update is authorized to modify its object
 		// By re-sending an updated Article created in kDeliverCreateArticlesToTestPeer but from kActor0 instead of kActor1,
