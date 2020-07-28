@@ -3807,6 +3807,17 @@ func newFederatingTests() []Test {
 				if done {
 					return true
 				}
+				// Get the activity to reply to
+				done, activity := me.helperGetActivityFromInstructionKey(ctx, kActivityWithFollowersKeyId)
+				if done {
+					return true
+				}
+				replyIRI, err := pub.GetId(activity)
+				if err != nil {
+					me.R.Add("Could not determine the ID of the activity", err)
+					me.State = TestResultFail
+					return true
+				}
 				// Get our information
 				outboxIRI := ActorIRIToOutboxIRI(ctx.TestActor0.ActivityPubIRI)
 				// Construct a Note to send
@@ -3833,6 +3844,9 @@ func newFederatingTests() []Test {
 				ccProp := streams.NewActivityStreamsCcProperty()
 				ccProp.AppendIRI(fid)
 				note.SetActivityStreamsCc(ccProp)
+				irt := streams.NewActivityStreamsInReplyToProperty()
+				irt.AppendIRI(replyIRI)
+				note.SetActivityStreamsInReplyTo(irt)
 				// Send the Note to the peer
 				sa, err := ctx.Actor.Send(ctx.C, outboxIRI, note)
 				if err != nil {
@@ -3912,6 +3926,10 @@ func newFederatingTests() []Test {
 		// prompt the peer software to say whether the update was successful or not.
 
 		// TODO: We need to note to the test end-user that shared-inbox tests are NOT supported.
+
+		// TODO: Should: For inbox forwarding, recurse through to, bto, cc, bcc, audience object values to determine whether/where to forward
+		// according to criteria in 7.1.2
+		// TODO: Should: Limit recursion in this (the above) process.
 
 		// TODO: Non-Normative: Server filters incoming content both by local untrusted users and any remote users through some sort of spam filter
 		// TODO: Non-Normative: By default, implementation does not make HTTP requests to localhost when delivering Activities
