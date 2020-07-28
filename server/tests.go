@@ -91,6 +91,7 @@ const (
 	kSentReplyAcceptToTheirFollowKeyId  = "test_key_federated_accept_follow_sent"
 	kSentReplyRejectToTheirFollowKeyId  = "test_key_federated_reject_follow_sent"
 	kFollowingCollectionKeyId           = "test_key_following_collection_iri_list"
+	kActivityWithFollowersKeyId         = "instruction_key_federated_activity_with_followers"
 )
 
 type instructionResponse struct {
@@ -529,6 +530,42 @@ func (b *baseTest) helperOrderedItemsHasIRI(ctx *TestRunnerContext, toFind, exam
 	return
 }
 
+func (b *baseTest) helperActivityAddressedTo(ctx *TestRunnerContext, a pub.Activity, toFind *url.URL) (done, found bool) {
+	to := a.GetActivityStreamsTo()
+	if to != nil {
+		for iter := to.Begin(); iter != to.End(); iter = iter.Next() {
+			toIRI, err := pub.ToId(iter)
+			if err != nil {
+				b.R.Add("Could not convert a `to` value to an IRI")
+				b.State = TestResultFail
+				done = true
+				return
+			}
+			if toIRI.String() == toFind.String() {
+				found = true
+				return
+			}
+		}
+	}
+	cc := a.GetActivityStreamsCc()
+	if cc != nil {
+		for iter := cc.Begin(); iter != cc.End(); iter = iter.Next() {
+			ccIRI, err := pub.ToId(iter)
+			if err != nil {
+				b.R.Add("Could not convert a `cc` value to an IRI")
+				b.State = TestResultFail
+				done = true
+				return
+			}
+			if ccIRI.String() == toFind.String() {
+				found = true
+				return
+			}
+		}
+	}
+	return
+}
+
 func (b *baseTest) helperCollectionToIRIs(ctx *TestRunnerContext, t vocab.Type) (done bool, iris []*url.URL) {
 	// TODO: Handle pagination
 	done = false
@@ -596,6 +633,30 @@ func (b *baseTest) helperIdPropertyToIRIs(ctx *TestRunnerContext, f func() pub.I
 	return
 }
 
+func (b *baseTest) helperGetActivityFromInstructionKey(ctx *TestRunnerContext, keyId string) (done bool, activity pub.Activity) {
+	iri, err := getInstructionResponseAsDirectIRI(ctx, keyId)
+	if err != nil {
+		b.R.Add("Could not resolve the ID of the activity: " + err.Error())
+		b.State = TestResultFail
+		done = true
+		return
+	}
+	var t vocab.Type
+	done, t = b.helperMustGetFromDatabase(ctx, iri)
+	if done {
+		return
+	}
+	ok := false
+	activity, ok = t.(pub.Activity)
+	if !ok {
+		b.R.Add("Could not resolve to the pub.Activity type", iri)
+		b.State = TestResultFail
+		done = true
+		return
+	}
+	return
+}
+
 /* TEST HELPERS & CONSTANTS */
 
 const (
@@ -651,6 +712,7 @@ const (
 	kGETFollowingCollection                         = "GET Following Collection"
 	kAddedActorToFollowingCollection                = "Following Collection Has Accepted-Follow Actor"
 	kDidNotAddActorToFollowingCollection            = "Following Collection Does Not Have Rejected-Follow Actor"
+	kServerSendsActivityWithFollowersAddressed      = "Sends Activity With Followers Addressed"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -1620,25 +1682,13 @@ func newFederatingTests() []Test {
 					me.State = TestResultInconclusive
 					return true
 				}
-				iri, err := getInstructionResponseAsDirectIRI(ctx, kDeliveredFederatedActivityToKeyId)
-				if err != nil {
-					me.R.Add("Could not obtain an activity: " + err.Error())
-					me.State = TestResultFail
-					return true
-				}
-				done, t := me.helperMustGetFromDatabase(ctx, iri)
+				done, activity := me.helperGetActivityFromInstructionKey(ctx, kDeliveredFederatedActivityToKeyId)
 				if done {
-					return true
-				}
-				activity, ok := t.(pub.Activity)
-				if !ok {
-					me.R.Add("Could not resolve to the pub.Activity type", iri)
-					me.State = TestResultFail
 					return true
 				}
 				to := activity.GetActivityStreamsTo()
 				if to == nil {
-					me.R.Add("Activity has no `to` value", iri)
+					me.R.Add("Activity has no `to` value", activity)
 					me.State = TestResultFail
 					return true
 				}
@@ -1656,7 +1706,7 @@ func newFederatingTests() []Test {
 					}
 				}
 				if !found {
-					me.R.Add("Could not find the actor in the `to` property of the activity", iri, ctx.TestActor0)
+					me.R.Add("Could not find the actor in the `to` property of the activity", ctx.TestActor0, activity)
 					me.State = TestResultFail
 					return true
 				}
@@ -1712,25 +1762,13 @@ func newFederatingTests() []Test {
 					me.State = TestResultInconclusive
 					return true
 				}
-				iri, err := getInstructionResponseAsDirectIRI(ctx, kDeliveredFederatedActivityCcKeyId)
-				if err != nil {
-					me.R.Add("Could not obtain an activity: " + err.Error())
-					me.State = TestResultFail
-					return true
-				}
-				done, t := me.helperMustGetFromDatabase(ctx, iri)
+				done, activity := me.helperGetActivityFromInstructionKey(ctx, kDeliveredFederatedActivityCcKeyId)
 				if done {
-					return true
-				}
-				activity, ok := t.(pub.Activity)
-				if !ok {
-					me.R.Add("Could not resolve to the pub.Activity type", iri)
-					me.State = TestResultFail
 					return true
 				}
 				cc := activity.GetActivityStreamsCc()
 				if cc == nil {
-					me.R.Add("Activity has no `cc` value", iri)
+					me.R.Add("Activity has no `cc` value", activity)
 					me.State = TestResultFail
 					return true
 				}
@@ -1748,7 +1786,7 @@ func newFederatingTests() []Test {
 					}
 				}
 				if !found {
-					me.R.Add("Could not find the actor in the `cc` property of the activity", iri, ctx.TestActor0)
+					me.R.Add("Could not find the actor in the `cc` property of the activity", ctx.TestActor0, activity)
 					me.State = TestResultFail
 					return true
 				}
@@ -1804,20 +1842,8 @@ func newFederatingTests() []Test {
 					me.State = TestResultInconclusive
 					return true
 				}
-				iri, err := getInstructionResponseAsDirectIRI(ctx, kDeliveredFederatedActivityBtoKeyId)
-				if err != nil {
-					me.R.Add("Could not obtain an activity: " + err.Error())
-					me.State = TestResultFail
-					return true
-				}
-				done, t := me.helperMustGetFromDatabase(ctx, iri)
+				done, activity := me.helperGetActivityFromInstructionKey(ctx, kDeliveredFederatedActivityBtoKeyId)
 				if done {
-					return true
-				}
-				activity, ok := t.(pub.Activity)
-				if !ok {
-					me.R.Add("Could not resolve to the pub.Activity type", iri)
-					me.State = TestResultFail
 					return true
 				}
 				bto := activity.GetActivityStreamsBto()
@@ -1878,20 +1904,8 @@ func newFederatingTests() []Test {
 					me.State = TestResultInconclusive
 					return true
 				}
-				iri, err := getInstructionResponseAsDirectIRI(ctx, kDeliveredFederatedActivityBccKeyId)
-				if err != nil {
-					me.R.Add("Could not obtain an activity: " + err.Error())
-					me.State = TestResultFail
-					return true
-				}
-				done, t := me.helperMustGetFromDatabase(ctx, iri)
+				done, activity := me.helperGetActivityFromInstructionKey(ctx, kDeliveredFederatedActivityBccKeyId)
 				if done {
-					return true
-				}
-				activity, ok := t.(pub.Activity)
-				if !ok {
-					me.R.Add("Could not resolve to the pub.Activity type", iri)
-					me.State = TestResultFail
 					return true
 				}
 				bcc := activity.GetActivityStreamsBcc()
@@ -2711,59 +2725,19 @@ func newFederatingTests() []Test {
 					me.State = TestResultInconclusive
 					return true
 				}
-				iri, err := getInstructionResponseAsDirectIRI(ctx, kServerDoesNotSelfAddress)
-				if err != nil {
-					me.R.Add("Could not obtain activity iri for self-address test: " + err.Error())
-					me.State = TestResultFail
-					return true
-				}
-				done, at := me.helperMustGetFromDatabase(ctx, iri)
+				done, activity := me.helperGetActivityFromInstructionKey(ctx, kServerDoesNotSelfAddress)
 				if done {
 					return true
 				}
-				me.R.Add("Found activity in database", at)
-				activity, ok := at.(pub.Activity)
-				if !ok {
-					me.R.Add("Could not resolve to the pub.Activity type", iri)
-					me.State = TestResultFail
+				done, found := me.helperActivityAddressedTo(ctx, activity, ctx.TestRemoteActorID)
+				if done {
 					return true
 				}
-				found := false
-				to := activity.GetActivityStreamsTo()
-				if to != nil {
-					for iter := to.Begin(); iter != to.End(); iter = iter.Next() {
-						toIRI, err := pub.ToId(iter)
-						if err != nil {
-							me.R.Add("Could not convert a `to` value to an IRI")
-							me.State = TestResultFail
-							return true
-						}
-						if toIRI.String() == ctx.TestRemoteActorID.String() {
-							found = true
-							break
-						}
-					}
-				}
-				cc := activity.GetActivityStreamsCc()
-				if cc != nil {
-					for iter := cc.Begin(); iter != cc.End(); iter = iter.Next() {
-						ccIRI, err := pub.ToId(iter)
-						if err != nil {
-							me.R.Add("Could not convert a `cc` value to an IRI")
-							me.State = TestResultFail
-							return true
-						}
-						if ccIRI.String() == ctx.TestRemoteActorID.String() {
-							found = true
-							break
-						}
-					}
-				}
 				if found {
-					me.R.Add("The activity self addressed to the test actor", iri)
+					me.R.Add("The activity self addressed to the test actor", activity)
 					me.State = TestResultFail
 				} else {
-					me.R.Add("The activity did not self address to the test actor", iri)
+					me.R.Add("The activity did not self address to the test actor", activity)
 					me.State = TestResultPass
 				}
 				return true
@@ -3646,6 +3620,171 @@ func newFederatingTests() []Test {
 					me.R.Add("Successful because we did not find our actor in the following collection", ctx.TestActor0.ActivityPubIRI)
 					me.State = TestResultPass
 				}
+				return true
+			},
+		},
+
+		// Send Activity With Followers Also Addressed
+		//
+		// Requires:
+		// - GET Followers succeeded
+		// Side Effects:
+		// - Stores activity addressed to followers
+		&baseTest{
+			TestName:    kServerSendsActivityWithFollowersAddressed,
+			Description: "Server sends activity with followers in `cc` or `to` on Activity",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				if !hasAnyRanResult(kGETActorTestName, existing) || !hasTestPass(kGETActorTestName, existing) ||
+					!hasAnyRanResult(kGETFollowersCollection, existing) || !hasTestPass(kGETFollowersCollection, existing) {
+					return nil
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerSendsActivityWithFollowersAddressed, kActivityWithFollowersKeyId, skippable) {
+					ctx.APH.ExpectFederatedCoreActivity(kActivityWithFollowersKeyId)
+					return &Instruction{
+						Instructions: fmt.Sprintf("Please send an activity from %s to %s with their followers in the `to` or `cc`", ctx.TestRemoteActorID, ctx.TestActor0),
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kActivityWithFollowersKeyId,
+							Type: labelOnlyInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kGETActorTestName, existing) || !hasAnyRanResult(kGETFollowersCollection, existing) {
+					return false
+				} else if !hasTestPass(kGETActorTestName, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
+					me.State = TestResultInconclusive
+					return true
+				} else if !hasTestPass(kGETFollowersCollection, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETFollowersCollection)
+					me.State = TestResultInconclusive
+					return true
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kServerSendsActivityWithFollowersAddressed, kActivityWithFollowersKeyId, skippable) {
+					return false
+				} else if hasSkippedTestName(ctx, kServerSendsActivityWithFollowersAddressed) {
+					ctx.APH.ClearExpectations()
+					me.R.Add("Skipping: Instructions were skipped")
+					me.State = TestResultInconclusive
+					return true
+				}
+				// Get the peer actor's followers
+				done, at := me.helperMustGetFromDatabase(ctx, ctx.TestRemoteActorID)
+				if done {
+					return true
+				}
+				done, actor := me.helperToActor(ctx, at)
+				if done {
+					return true
+				}
+				f := actor.GetActivityStreamsFollowers()
+				if f == nil {
+					me.R.Add("Actor at IRI does not have a followers collection", ctx.TestRemoteActorID)
+					me.State = TestResultFail
+					return true
+				}
+				fid, err := pub.ToId(f)
+				if err != nil {
+					me.R.Add("Could not determine the ID of the actor's followers", err)
+					me.State = TestResultFail
+					return true
+				}
+				// Get the activity sent.
+				done, activity := me.helperGetActivityFromInstructionKey(ctx, kActivityWithFollowersKeyId)
+				if done {
+					return true
+				}
+				iri, err := pub.GetId(activity)
+				if err != nil {
+					me.R.Add("Could not determine the ID of the activity", err)
+					me.State = TestResultFail
+					return true
+				}
+				// Check that addressing has kActor0, not kActor1, not kActor2, and federated peer's followers.
+				done, foundActor0 := me.helperActivityAddressedTo(ctx, activity, ctx.TestActor0.ActivityPubIRI)
+				if done {
+					return true
+				}
+				done, foundActor1 := me.helperActivityAddressedTo(ctx, activity, ctx.TestActor1.ActivityPubIRI)
+				if done {
+					return true
+				}
+				done, foundActor2 := me.helperActivityAddressedTo(ctx, activity, ctx.TestActor2.ActivityPubIRI)
+				if done {
+					return true
+				}
+				done, foundFollowers := me.helperActivityAddressedTo(ctx, activity, fid)
+				if done {
+					return true
+				}
+				if !foundActor0 {
+					me.R.Add("The activity did not directly address an actor", ctx.TestActor0.ActivityPubIRI)
+					me.State = TestResultFail
+					return true
+				}
+				if foundActor1 {
+					me.R.Add("The activity directly addressed an actor that would be covered by the followers collection", ctx.TestActor1.ActivityPubIRI)
+					me.State = TestResultFail
+					return true
+				}
+				if foundActor2 {
+					me.R.Add("The activity directly addressed an undesired actor", ctx.TestActor2.ActivityPubIRI)
+					me.State = TestResultFail
+					return true
+				}
+				if !foundFollowers {
+					me.R.Add("The activity did not directly address the required followers collection", fid)
+					me.State = TestResultFail
+					return true
+				}
+				me.R.Add(fmt.Sprintf("Obtained the federated activity", activity))
+				// Ensure kActor0 (directly addressed) and kActor1 (follower) both have the activity
+				actor0InboxIRI := ActorIRIToInboxIRI(ctx.TestActor0.ActivityPubIRI)
+				done, at = me.helperMustGetFromDatabase(ctx, actor0InboxIRI)
+				if done {
+					return true
+				}
+				done, actor0oc := me.helperToOrderedCollectionOrPage(ctx, at)
+				if done {
+					return true
+				}
+				actor0oip := actor0oc.GetActivityStreamsOrderedItems()
+				done, found := me.helperOrderedItemsHasIRI(ctx, iri, actor0InboxIRI, actor0oip)
+				if done {
+					return true
+				} else if !found {
+					me.R.Add("Actor0, directly addressed, was not delivered the activity")
+					me.State = TestResultFail
+					return true
+				}
+				me.R.Add("Actor0 has the activity, as they are directly addressed")
+				actor1InboxIRI := ActorIRIToInboxIRI(ctx.TestActor1.ActivityPubIRI)
+				done, at = me.helperMustGetFromDatabase(ctx, actor1InboxIRI)
+				if done {
+					return true
+				}
+				done, actor1oc := me.helperToOrderedCollectionOrPage(ctx, at)
+				if done {
+					return true
+				}
+				actor1oip := actor1oc.GetActivityStreamsOrderedItems()
+				done, found = me.helperOrderedItemsHasIRI(ctx, iri, actor1InboxIRI, actor1oip)
+				if done {
+					return true
+				} else if !found {
+					me.R.Add("Actor1, a follower, was not delivered the activity")
+					me.State = TestResultFail
+					return true
+				}
+				me.R.Add("Actor1 has the activity, as they are marked as followers")
+				me.State = TestResultPass
 				return true
 			},
 		},
