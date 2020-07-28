@@ -92,6 +92,7 @@ const (
 	kSentReplyRejectToTheirFollowKeyId  = "test_key_federated_reject_follow_sent"
 	kFollowingCollectionKeyId           = "test_key_following_collection_iri_list"
 	kActivityWithFollowersKeyId         = "instruction_key_federated_activity_with_followers"
+	kSentReplyForInboxForwardingKeyId   = "test_key_federated_inbox_forwarding_activity"
 )
 
 type instructionResponse struct {
@@ -657,6 +658,36 @@ func (b *baseTest) helperGetActivityFromInstructionKey(ctx *TestRunnerContext, k
 	return
 }
 
+func (b *baseTest) helperGetFederatingPeerFollowersIRI(ctx *TestRunnerContext) (done bool, fid *url.URL) {
+	// Get the peer actor's followers
+	var at vocab.Type
+	done, at = b.helperMustGetFromDatabase(ctx, ctx.TestRemoteActorID)
+	if done {
+		return
+	}
+	var actor actorWrapper
+	done, actor = b.helperToActor(ctx, at)
+	if done {
+		return
+	}
+	f := actor.GetActivityStreamsFollowers()
+	if f == nil {
+		b.R.Add("Actor at IRI does not have a followers collection", ctx.TestRemoteActorID)
+		b.State = TestResultFail
+		done = true
+		return
+	}
+	var err error
+	fid, err = pub.ToId(f)
+	if err != nil {
+		b.R.Add("Could not determine the ID of the actor's followers", err)
+		b.State = TestResultFail
+		done = true
+		return
+	}
+	return
+}
+
 /* TEST HELPERS & CONSTANTS */
 
 const (
@@ -713,6 +744,7 @@ const (
 	kAddedActorToFollowingCollection                = "Following Collection Has Accepted-Follow Actor"
 	kDidNotAddActorToFollowingCollection            = "Following Collection Does Not Have Rejected-Follow Actor"
 	kServerSendsActivityWithFollowersAddressed      = "Sends Activity With Followers Addressed"
+	kServerHandlesReplyRequiringInboxForwarding     = "Handles A Reply Requiring Inbox Fowarding"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -3245,24 +3277,8 @@ func newFederatingTests() []Test {
 					return true
 				}
 				// Get the actor followers IRI
-				done, at := me.helperMustGetFromDatabase(ctx, ctx.TestRemoteActorID)
+				done, fid := me.helperGetFederatingPeerFollowersIRI(ctx)
 				if done {
-					return true
-				}
-				done, actor := me.helperToActor(ctx, at)
-				if done {
-					return true
-				}
-				f := actor.GetActivityStreamsFollowers()
-				if f == nil {
-					me.R.Add("Actor at IRI does not have a followers collection: ", ctx.TestRemoteActorID)
-					me.State = TestResultFail
-					return true
-				}
-				fid, err := pub.ToId(f)
-				if err != nil {
-					me.R.Add("Could not determine the ID of the actor's followers: ", err)
-					me.State = TestResultFail
 					return true
 				}
 				// Dereference the collection.
@@ -3676,24 +3692,8 @@ func newFederatingTests() []Test {
 					return true
 				}
 				// Get the peer actor's followers
-				done, at := me.helperMustGetFromDatabase(ctx, ctx.TestRemoteActorID)
+				done, fid := me.helperGetFederatingPeerFollowersIRI(ctx)
 				if done {
-					return true
-				}
-				done, actor := me.helperToActor(ctx, at)
-				if done {
-					return true
-				}
-				f := actor.GetActivityStreamsFollowers()
-				if f == nil {
-					me.R.Add("Actor at IRI does not have a followers collection", ctx.TestRemoteActorID)
-					me.State = TestResultFail
-					return true
-				}
-				fid, err := pub.ToId(f)
-				if err != nil {
-					me.R.Add("Could not determine the ID of the actor's followers", err)
-					me.State = TestResultFail
 					return true
 				}
 				// Get the activity sent.
@@ -3747,7 +3747,7 @@ func newFederatingTests() []Test {
 				me.R.Add(fmt.Sprintf("Obtained the federated activity", activity))
 				// Ensure kActor0 (directly addressed) and kActor1 (follower) both have the activity
 				actor0InboxIRI := ActorIRIToInboxIRI(ctx.TestActor0.ActivityPubIRI)
-				done, at = me.helperMustGetFromDatabase(ctx, actor0InboxIRI)
+				done, at := me.helperMustGetFromDatabase(ctx, actor0InboxIRI)
 				if done {
 					return true
 				}
@@ -3784,6 +3784,69 @@ func newFederatingTests() []Test {
 					return true
 				}
 				me.R.Add("Actor1 has the activity, as they are marked as followers")
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Handles A Reply Requiring Inbox Fowarding
+		//
+		// Requires:
+		// - Send Activity With Followers Also Addressed
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kServerHandlesReplyRequiringInboxForwarding,
+			Description: "Forwards incoming activities to the values of `to`, `cc`, `audience` if and only if criteria in 7.1.2 are met.",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				// Get followers collection of federating peer
+				done, fid := me.helperGetFederatingPeerFollowersIRI(ctx)
+				if done {
+					return true
+				}
+				// Get our information
+				outboxIRI := ActorIRIToOutboxIRI(ctx.TestActor0.ActivityPubIRI)
+				// Construct a Note to send
+				note := streams.NewActivityStreamsNote()
+				cp := streams.NewActivityStreamsContentProperty()
+				cp.AppendXMLSchemaString("Hello, this is an automated message from the go-fed/testsuite.")
+				note.SetActivityStreamsContent(cp)
+				mediaType := streams.NewActivityStreamsMediaTypeProperty()
+				mediaType.Set("text/plain; charset=utf-8")
+				note.SetActivityStreamsMediaType(mediaType)
+				attrTo := streams.NewActivityStreamsAttributedToProperty()
+				attrTo.AppendIRI(ctx.TestActor0.ActivityPubIRI)
+				note.SetActivityStreamsAttributedTo(attrTo)
+				toProp := streams.NewActivityStreamsToProperty()
+				publicIRI, err := url.Parse(pub.PublicActivityPubIRI)
+				if err != nil {
+					me.R.Add("Could not parse public activity IRI", err)
+					me.State = TestResultFail
+					return true
+				}
+				toProp.AppendIRI(publicIRI)
+				toProp.AppendIRI(ctx.TestRemoteActorID)
+				note.SetActivityStreamsTo(toProp)
+				ccProp := streams.NewActivityStreamsCcProperty()
+				ccProp.AppendIRI(fid)
+				note.SetActivityStreamsCc(ccProp)
+				// Send the Note to the peer
+				sa, err := ctx.Actor.Send(ctx.C, outboxIRI, note)
+				if err != nil {
+					me.R.Add("Could not deliver activity to the test actor", err)
+					me.State = TestResultFail
+					return true
+				}
+				newIRI, err := pub.GetId(sa)
+				if err != nil {
+					me.R.Add("Could not obtain sent activity iri: " + err.Error())
+					me.State = TestResultFail
+					return true
+				}
+				ctx.C = context.WithValue(ctx.C, kSentReplyForInboxForwardingKeyId, newIRI)
+				me.R.Add(fmt.Sprintf("Successfully sent the follow request", sa))
 				me.State = TestResultPass
 				return true
 			},
