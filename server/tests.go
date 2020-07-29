@@ -48,6 +48,7 @@ const (
 	labelOnlyInstructionResponse                          = "label_only"
 	doneButtonInstructionResponse                         = "done_button"
 	numberInstructionResponse                             = "number"
+	yesNoInstructionResponse                              = "yes_no"
 )
 
 // Key IDs of user-submitted responses to instructions.
@@ -82,6 +83,7 @@ const (
 	kServerDoubleDeliverActivityKeyId   = "instruction_key_federated_double_deliver_activity"
 	kServerSelfDeliverActivityKeyId     = "instruction_key_federated_self_deliver_activity"
 	kNumDuplicateActivitiesKeyId        = "instruction_key_federated_duplicate_activity_num"
+	kSentCreateArticleKeyId             = "test_key_sent_create_article_activity"
 	kSentAcceptFollowKeyId              = "test_key_federated_sent_follow_for_accept"
 	kAcceptFollowKeyId                  = "instruction_key_federated_accept_follow"
 	kSentRejectFollowKeyId              = "test_key_federated_sent_follow_for_reject"
@@ -93,6 +95,7 @@ const (
 	kFollowingCollectionKeyId           = "test_key_following_collection_iri_list"
 	kActivityWithFollowersKeyId         = "instruction_key_federated_activity_with_followers"
 	kSentReplyForInboxForwardingKeyId   = "test_key_federated_inbox_forwarding_activity"
+	kUnauthorizedUpdateAppliedKeyId     = "instruction_key_federated_update_applied"
 )
 
 type instructionResponse struct {
@@ -746,6 +749,8 @@ const (
 	kServerSendsActivityWithFollowersAddressed      = "Sends Activity With Followers Addressed"
 	kServerHandlesReplyRequiringInboxForwarding     = "Handles A Reply Requiring Inbox Fowarding"
 	kServerAppliedInboxForwarding                   = "Applied Inbox Fowarding"
+	kDoesNotProcessUpdateActivity                   = "Does Not Process Update Activity From Unauthorized Actor"
+	kConfirmUnauthorizedUpdate                      = "Confirm Whether Unauthorized Update Applied"
 )
 
 func getResultForTest(name string, existing []Result) *Result {
@@ -863,6 +868,16 @@ func getInstructionResponseAsOnlyString(ctx *TestRunnerContext, keyID string) (s
 		return
 	}
 	s = strs[0]
+	return
+}
+
+func getInstructionResponseAsYesNo(ctx *TestRunnerContext, keyID string) (yes bool, err error) {
+	var s string
+	s, err = getInstructionResponseAsOnlyString(ctx, keyID)
+	if err != nil {
+		return
+	}
+	yes = s == "yes"
 	return
 }
 
@@ -2891,6 +2906,13 @@ func newFederatingTests() []Test {
 						me.State = TestResultFail
 						return true
 					} else if i == 0 {
+						sentIRI, err := pub.GetId(sa)
+						if err != nil {
+							me.R.Add("Could not get ID of the sent activity", err)
+							me.State = TestResultFail
+							return true
+						}
+						ctx.C = context.WithValue(ctx.C, kSentCreateArticleKeyId, sentIRI)
 						m, err := streams.Serialize(sa)
 						if err != nil {
 							me.R.Add("Could not serialize activity", err)
@@ -3918,9 +3940,172 @@ func newFederatingTests() []Test {
 			},
 		},
 
-		// TODO: Must: Take care to be sure that the Update is authorized to modify its object
-		// By re-sending an updated Article created in kDeliverCreateArticlesToTestPeer but from kActor0 instead of kActor1,
-		// prompt the peer software to say whether the update was successful or not.
+		// Does Not Process Update Activity From Unauthorized Actor
+		//
+		// Requires:
+		// - Remote actor in the Database
+		// - Delivers Create Activity For Article To Federated Peer
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kDoesNotProcessUpdateActivity,
+			Description: "Take care to be sure that the Update is authorized to modify its object",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kGETActorTestName, existing) {
+					return false
+				} else if !hasAnyRanResult(kDeliverCreateArticlesToTestPeer, existing) {
+					return false
+				} else if !hasTestPass(kGETActorTestName, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kGETActorTestName)
+					me.State = TestResultInconclusive
+					return true
+				} else if !hasTestPass(kDeliverCreateArticlesToTestPeer, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kDeliverCreateArticlesToTestPeer)
+					me.State = TestResultInconclusive
+					return true
+				}
+				// Get previously-sent create-article activity ID
+				actIRI, err := getInstructionResponseAsDirectIRI(ctx, kSentCreateArticleKeyId)
+				if err != nil {
+					me.R.Add("Could not resolve the ID of the sent activity", err)
+					me.State = TestResultFail
+					return true
+				}
+				// Get the article's ID
+				done, at := me.helperMustGetFromDatabase(ctx, actIRI)
+				if done {
+					return true
+				}
+				create, ok := at.(vocab.ActivityStreamsCreate)
+				if !ok {
+					me.R.Add("Could not resolve Activity to a Create", at)
+					me.State = TestResultFail
+					return true
+				}
+				objp := create.GetActivityStreamsObject()
+				if objp == nil {
+					me.R.Add("Create has no object property", at)
+					me.State = TestResultFail
+					return true
+				} else if objp.Len() != 1 {
+					me.R.Add("Create has object property of size other than 1", at)
+					me.State = TestResultFail
+					return true
+				} else if !objp.At(0).IsActivityStreamsArticle() {
+					me.R.Add("Create object that is not an Article", at)
+					me.State = TestResultFail
+					return true
+				}
+				oldArticle := objp.At(0).GetActivityStreamsArticle()
+				oldArticleIRI, err := pub.GetId(oldArticle)
+				if err != nil {
+					me.R.Add("Cannot get Article id", oldArticle)
+					me.State = TestResultFail
+					return true
+				}
+				// Get our information for sending
+				outboxIRI := ActorIRIToOutboxIRI(ctx.TestActor0.ActivityPubIRI)
+				// Construct an updated article to send.
+				article := streams.NewActivityStreamsArticle()
+				idp := streams.NewJSONLDIdProperty()
+				idp.Set(oldArticleIRI)
+				article.SetJSONLDId(idp)
+				cp := streams.NewActivityStreamsContentProperty()
+				cp.AppendXMLSchemaString("This is totally new content")
+				article.SetActivityStreamsContent(cp)
+				mediaType := streams.NewActivityStreamsMediaTypeProperty()
+				mediaType.Set("text/plain; charset=utf-8")
+				article.SetActivityStreamsMediaType(mediaType)
+				attrTo := streams.NewActivityStreamsAttributedToProperty()
+				attrTo.AppendIRI(ctx.TestActor1.ActivityPubIRI)
+				article.SetActivityStreamsAttributedTo(attrTo)
+				toProp := streams.NewActivityStreamsToProperty()
+				publicIRI, err := url.Parse(pub.PublicActivityPubIRI)
+				if err != nil {
+					me.R.Add("Could not parse public activity IRI", err)
+					me.State = TestResultFail
+					return true
+				}
+				toProp.AppendIRI(publicIRI)
+				toProp.AppendIRI(ctx.TestRemoteActorID)
+				article.SetActivityStreamsTo(toProp)
+				// Construct an Update activity
+				update := streams.NewActivityStreamsUpdate()
+				act := streams.NewActivityStreamsActorProperty()
+				act.AppendIRI(ctx.TestActor0.ActivityPubIRI)
+				update.SetActivityStreamsActor(act)
+				toUpProp := streams.NewActivityStreamsToProperty()
+				toUpProp.AppendIRI(ctx.TestRemoteActorID)
+				update.SetActivityStreamsTo(toUpProp)
+				obj := streams.NewActivityStreamsObjectProperty()
+				obj.AppendActivityStreamsArticle(article)
+				update.SetActivityStreamsObject(obj)
+				// Send the payload, accepting error codes
+				_, err = ctx.Actor.Send(ctx.C, outboxIRI, update)
+				if err != nil {
+					me.R.Add("FYI: error sending unauthorized update", err)
+				} else {
+					me.R.Add("Sent the unauthorized update")
+				}
+				me.State = TestResultPass
+				return true
+			},
+		},
+
+		// Confirm Whether Unauthorized Update Applied
+		//
+		// Requires:
+		// - Does Not Process Update Activity From Unauthorized Actor
+		// Side Effects:
+		// - N/A
+		&baseTest{
+			TestName:    kConfirmUnauthorizedUpdate,
+			Description: "Confirm whether the Update modified its object",
+			SpecKind:    TestSpecKindMust,
+			R:           NewRecorder(),
+			ShouldSendInstructions: func(me *baseTest, ctx *TestRunnerContext, existing []Result) *Instruction {
+				if !hasAnyRanResult(kDoesNotProcessUpdateActivity, existing) || !hasTestPass(kDoesNotProcessUpdateActivity, existing) {
+					return nil
+				}
+				const skippable = true
+				if !hasAnyInstructionKey(ctx, kConfirmUnauthorizedUpdate, kUnauthorizedUpdateAppliedKeyId, skippable) {
+					return &Instruction{
+						Instructions: "Did the update to the article get successfully applied in your application?",
+						Skippable:    skippable,
+						Resp: []instructionResponse{{
+							Key:  kUnauthorizedUpdateAppliedKeyId,
+							Type: yesNoInstructionResponse,
+						}},
+					}
+				}
+				return nil
+			},
+			Run: func(me *baseTest, ctx *TestRunnerContext, existing []Result) (returnResult bool) {
+				if !hasAnyRanResult(kDoesNotProcessUpdateActivity, existing) {
+					return false
+				} else if !hasTestPass(kDoesNotProcessUpdateActivity, existing) {
+					me.R.Add("Skipping: dependency test did not pass: " + kDoesNotProcessUpdateActivity)
+					me.State = TestResultInconclusive
+					return true
+				}
+				yes, err := getInstructionResponseAsYesNo(ctx, kUnauthorizedUpdateAppliedKeyId)
+				if err == nil {
+					me.R.Add("Error processing instructions", err)
+					me.State = TestResultFail
+					return true
+				} else if yes {
+					me.R.Add("Unauthorized update did apply in peer's software")
+					me.State = TestResultFail
+					return true
+				}
+				me.R.Add("Unauthorized update did not apply in peer's software")
+				me.State = TestResultPass
+				return true
+			},
+		},
+
 		// TODO: Should: Completely replace its copy of the activity with the newly received value
 		// By re-sending an updated Article created in kDeliverCreateArticlesToTestPeer from kActor1,
 		// prompt the peer software to say whether the update was successful or not.

@@ -34,6 +34,11 @@
 			{{$has_only_labelonly = false}}
 		{{else if eq $ir.Type "number"}}
 			<input type="number" name="{{$ir.Key}}" id="{{$ir.Key}}"></p>
+		{{else if eq $ir.Type "yes_no"}}
+			<label for="yes_id">Yes</label>
+			<input type="radio" id="yes_id" name="{{$ir.Key}}" value="yes">
+			<label for="no_id">No</label>
+			<input type="radio" id="no_id" name="{{$ir.Key}}" value="no">
 		{{else}}
 			Error: unhandled input type {{$ir.Type}}</p>
 		{{end}}
