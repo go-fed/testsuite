@@ -199,6 +199,7 @@ type Test interface {
 	MaybeGetInstructions(ctx *TestRunnerContext, existing []Result) *Instruction
 	MaybeRunResult(ctx *TestRunnerContext, existing []Result) *Result
 	Info() TestInfo
+	Recorder() *Recorder
 }
 
 type TestInfo struct {
@@ -227,6 +228,10 @@ func (b *baseTest) Info() TestInfo {
 		State:       b.State,
 		SpecKind:    b.SpecKind,
 	}
+}
+
+func (b *baseTest) Recorder() *Recorder {
+	return b.R
 }
 
 func (b *baseTest) MaybeGetInstructions(ctx *TestRunnerContext, existing []Result) *Instruction {
@@ -2581,7 +2586,7 @@ func newFederatingTests() []Test {
 							Type: labelOnlyInstructionResponse,
 						}, {
 							Key:  kServerBlockActivityDoneKeyId,
-							Type: doneButtonInstructionResponse,
+							Type: doneButtonInstructionResponse, // TODO: Make this work properly
 						}},
 					}
 				}

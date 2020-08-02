@@ -20,6 +20,7 @@ type ServerHandler interface {
 
 type TestRunner struct {
 	raw       *Recorder
+	rawMu     sync.RWMutex
 	tests     []Test
 	completed []Test
 	results   []Result
@@ -47,7 +48,6 @@ type TestRunner struct {
 
 func NewTestRunner(sh ServerHandler, tests []Test) *TestRunner {
 	return &TestRunner{
-		raw:       NewRecorder(),
 		tests:     tests,
 		completed: make([]Test, 0, len(tests)),
 		results:   make([]Result, 0, len(tests)),
@@ -100,6 +100,7 @@ func (tr *TestRunner) iterate(ctx *TestRunnerContext) error {
 	var r *Result
 	var doneIdx int
 	for idx, t := range tr.tests {
+		tr.SetRecorder(t.Recorder())
 		if i = t.MaybeGetInstructions(ctx, tr.results); i != nil {
 			break
 		} else if r = t.MaybeRunResult(ctx, tr.results); r != nil {
@@ -240,92 +241,107 @@ func (tr *TestRunner) ClearExpectations() {
 	tr.httpSigsMustMatchRemoteActor = false
 }
 
+func (tr *TestRunner) SetRecorder(r *Recorder) {
+	tr.rawMu.Lock()
+	defer tr.rawMu.Unlock()
+	tr.raw = r
+}
+
+func (tr *TestRunner) Log(msg string, i ...interface{}) {
+	tr.rawMu.RLock()
+	defer tr.rawMu.RUnlock()
+	if tr.raw == nil {
+		return
+	}
+	tr.raw.Add(msg, i...)
+}
+
 func (tr *TestRunner) LogAuthenticateGetInbox(c context.Context, w http.ResponseWriter, r *http.Request, authenticated bool, err error) {
-	tr.raw.Add("LogAuthenticateGetInbox", c, w, r, authenticated, err)
+	tr.Log("LogAuthenticateGetInbox", c, w, r, authenticated, err)
 }
 
 func (tr *TestRunner) LogAuthenticateGetOutbox(c context.Context, w http.ResponseWriter, r *http.Request, authenticated bool, err error) {
-	tr.raw.Add("LogAuthenticateGetOutbox", c, w, r, authenticated, err)
+	tr.Log("LogAuthenticateGetOutbox", c, w, r, authenticated, err)
 }
 
 func (tr *TestRunner) LogGetOutbox(c context.Context, r *http.Request, outboxId *url.URL, p vocab.ActivityStreamsOrderedCollectionPage, err error) {
-	tr.raw.Add("LogGetOutbox", c, r, outboxId, p, err)
+	tr.Log("LogGetOutbox", c, r, outboxId, p, err)
 }
 
 func (tr *TestRunner) LogNewTransport(c context.Context, actorBoxIRI *url.URL, err error) {
-	tr.raw.Add("LogNewTransport", c, actorBoxIRI, err)
+	tr.Log("LogNewTransport", c, actorBoxIRI, err)
 }
 
 func (tr *TestRunner) LogDefaultCallback(c context.Context, activity pub.Activity) {
-	tr.raw.Add("LogDefaultCallback", c, activity)
+	tr.Log("LogDefaultCallback", c, activity)
 }
 
 func (tr *TestRunner) LogPostOutboxRequestBodyHook(c context.Context, r *http.Request, data vocab.Type) {
-	tr.raw.Add("LogPostOutboxRequestBodyHook", c, r, data)
+	tr.Log("LogPostOutboxRequestBodyHook", c, r, data)
 }
 
 func (tr *TestRunner) LogAuthenticatePostOutbox(c context.Context, w http.ResponseWriter, r *http.Request, authenticated bool, err error) {
-	tr.raw.Add("LogAuthenticatePostOutbox", c, w, r, authenticated, err)
+	tr.Log("LogAuthenticatePostOutbox", c, w, r, authenticated, err)
 }
 
 func (tr *TestRunner) LogSocialCreate(c context.Context, v vocab.ActivityStreamsCreate) {
-	tr.raw.Add("LogSocialCreate", c, v)
+	tr.Log("LogSocialCreate", c, v)
 }
 
 func (tr *TestRunner) LogSocialUpdate(c context.Context, v vocab.ActivityStreamsUpdate) {
-	tr.raw.Add("LogSocialUpdate", c, v)
+	tr.Log("LogSocialUpdate", c, v)
 }
 
 func (tr *TestRunner) LogSocialDelete(c context.Context, v vocab.ActivityStreamsDelete) {
-	tr.raw.Add("LogSocialDelete", c, v)
+	tr.Log("LogSocialDelete", c, v)
 }
 
 func (tr *TestRunner) LogSocialFollow(c context.Context, v vocab.ActivityStreamsFollow) {
-	tr.raw.Add("LogSocialFollow", c, v)
+	tr.Log("LogSocialFollow", c, v)
 }
 
 func (tr *TestRunner) LogSocialAdd(c context.Context, v vocab.ActivityStreamsAdd) {
-	tr.raw.Add("LogSocialAdd", c, v)
+	tr.Log("LogSocialAdd", c, v)
 }
 
 func (tr *TestRunner) LogSocialRemove(c context.Context, v vocab.ActivityStreamsRemove) {
-	tr.raw.Add("LogSocialRemove", c, v)
+	tr.Log("LogSocialRemove", c, v)
 }
 
 func (tr *TestRunner) LogSocialLike(c context.Context, v vocab.ActivityStreamsLike) {
-	tr.raw.Add("LogSocialLike", c, v)
+	tr.Log("LogSocialLike", c, v)
 }
 
 func (tr *TestRunner) LogSocialUndo(c context.Context, v vocab.ActivityStreamsUndo) {
-	tr.raw.Add("LogSocialUndo", c, v)
+	tr.Log("LogSocialUndo", c, v)
 }
 
 func (tr *TestRunner) LogSocialBlock(c context.Context, v vocab.ActivityStreamsBlock) {
-	tr.raw.Add("LogSocialBlock", c, v)
+	tr.Log("LogSocialBlock", c, v)
 }
 
 func (tr *TestRunner) LogPostInboxRequestBodyHook(c context.Context, r *http.Request, activity pub.Activity) {
-	tr.raw.Add("LogPostInboxRequestBodyHook", c, r, activity)
+	tr.Log("LogPostInboxRequestBodyHook", c, r, activity)
 	tr.hookSyncMu.Lock()
 	defer tr.hookSyncMu.Unlock()
 	if len(tr.awaitFederatedCoreActivityMaybeDoubleDelivery) > 0 {
-		tr.raw.Add("Checking double-delivery condition")
+		tr.Log("Checking double-delivery condition")
 		iri, err := pub.GetId(activity)
 		if err != nil {
-			tr.raw.Add("Error attempting to get the id of the activity", err)
+			tr.Log("Error attempting to get the id of the activity", err)
 			return
 		}
 		key := tr.awaitFederatedCoreActivityMaybeDoubleDelivery
 		preIRI, err := getInstructionResponseAsDirectIRI(tr.ctx, key)
 		if err != nil {
-			tr.raw.Add("First time seeing activity with id, because error returned", iri, err)
+			tr.Log("First time seeing activity with id, because error returned", iri, err)
 			tr.ctx.C = context.WithValue(tr.ctx.C, key, iri)
 		} else if preIRI.String() == iri.String() {
-			tr.raw.Add("Second time seeing activity with the same id", iri)
+			tr.Log("Second time seeing activity with the same id", iri)
 			tr.awaitFederatedCoreActivityMaybeDoubleDelivery = ""
 			tr.ctx.C = context.WithValue(tr.ctx.C, key, []*url.URL{preIRI, iri})
 		} else {
-			tr.raw.Add("Second time seeing activity, with different ids", iri, preIRI)
+			tr.Log("Second time seeing activity, with different ids", iri, preIRI)
 			tr.awaitFederatedCoreActivityMaybeDoubleDelivery = ""
 			tr.ctx.C = context.WithValue(tr.ctx.C, key, []*url.URL{preIRI, iri})
 		}
@@ -334,18 +350,18 @@ func (tr *TestRunner) LogPostInboxRequestBodyHook(c context.Context, r *http.Req
 }
 
 func (tr *TestRunner) LogAuthenticatePostInbox(c context.Context, w http.ResponseWriter, r *http.Request, remoteActor *url.URL, authenticated bool, err error) {
-	tr.raw.Add("LogAuthenticatePostInbox", c, w, r, remoteActor, authenticated, err)
+	tr.Log("LogAuthenticatePostInbox", c, w, r, remoteActor, authenticated, err)
 }
 
 func (tr *TestRunner) LogBlocked(c context.Context, actorIRIs []*url.URL, blocked bool, err error) {
-	tr.raw.Add("LogBlocked", c, actorIRIs, blocked, err)
+	tr.Log("LogBlocked", c, actorIRIs, blocked, err)
 }
 
 func (tr *TestRunner) LogFederatingCreate(c context.Context, v vocab.ActivityStreamsCreate) {
-	tr.raw.Add("LogFederatingCreate", c, v)
+	tr.Log("LogFederatingCreate", c, v)
 	iri, err := pub.GetId(v)
 	if err != nil {
-		tr.raw.Add("Could not get Create iri: " + err.Error())
+		tr.Log("Could not get Create iri: " + err.Error())
 		return
 	}
 	tr.hookSyncMu.Lock()
@@ -365,10 +381,10 @@ func (tr *TestRunner) LogFederatingCreate(c context.Context, v vocab.ActivityStr
 }
 
 func (tr *TestRunner) LogFederatingUpdate(c context.Context, v vocab.ActivityStreamsUpdate) {
-	tr.raw.Add("LogFederatingUpdate", c, v)
+	tr.Log("LogFederatingUpdate", c, v)
 	iri, err := pub.GetId(v)
 	if err != nil {
-		tr.raw.Add("Could not get Update iri: " + err.Error())
+		tr.Log("Could not get Update iri: " + err.Error())
 		return
 	}
 	tr.hookSyncMu.Lock()
@@ -388,10 +404,10 @@ func (tr *TestRunner) LogFederatingUpdate(c context.Context, v vocab.ActivityStr
 }
 
 func (tr *TestRunner) LogFederatingDelete(c context.Context, v vocab.ActivityStreamsDelete) {
-	tr.raw.Add("LogFederatingDelete", c, v)
+	tr.Log("LogFederatingDelete", c, v)
 	iri, err := pub.GetId(v)
 	if err != nil {
-		tr.raw.Add("Could not get Delete iri: " + err.Error())
+		tr.Log("Could not get Delete iri: " + err.Error())
 		return
 	}
 	tr.hookSyncMu.Lock()
@@ -411,10 +427,10 @@ func (tr *TestRunner) LogFederatingDelete(c context.Context, v vocab.ActivityStr
 }
 
 func (tr *TestRunner) LogFederatingFollow(c context.Context, v vocab.ActivityStreamsFollow) {
-	tr.raw.Add("LogFederatingFollow", c, v)
+	tr.Log("LogFederatingFollow", c, v)
 	iri, err := pub.GetId(v)
 	if err != nil {
-		tr.raw.Add("Could not get Follow iri: " + err.Error())
+		tr.Log("Could not get Follow iri: " + err.Error())
 		return
 	}
 	tr.hookSyncMu.Lock()
@@ -434,10 +450,10 @@ func (tr *TestRunner) LogFederatingFollow(c context.Context, v vocab.ActivityStr
 }
 
 func (tr *TestRunner) LogFederatingAccept(c context.Context, v vocab.ActivityStreamsAccept) {
-	tr.raw.Add("LogFederatingAccept", c, v)
+	tr.Log("LogFederatingAccept", c, v)
 	iri, err := pub.GetId(v)
 	if err != nil {
-		tr.raw.Add("Could not get Accept iri: " + err.Error())
+		tr.Log("Could not get Accept iri: " + err.Error())
 		return
 	}
 	tr.hookSyncMu.Lock()
@@ -457,10 +473,10 @@ func (tr *TestRunner) LogFederatingAccept(c context.Context, v vocab.ActivityStr
 }
 
 func (tr *TestRunner) LogFederatingReject(c context.Context, v vocab.ActivityStreamsReject) {
-	tr.raw.Add("LogFederatingReject", c, v)
+	tr.Log("LogFederatingReject", c, v)
 	iri, err := pub.GetId(v)
 	if err != nil {
-		tr.raw.Add("Could not get Reject iri: " + err.Error())
+		tr.Log("Could not get Reject iri: " + err.Error())
 		return
 	}
 	tr.hookSyncMu.Lock()
@@ -480,10 +496,10 @@ func (tr *TestRunner) LogFederatingReject(c context.Context, v vocab.ActivityStr
 }
 
 func (tr *TestRunner) LogFederatingAdd(c context.Context, v vocab.ActivityStreamsAdd) {
-	tr.raw.Add("LogFederatingAdd", c, v)
+	tr.Log("LogFederatingAdd", c, v)
 	iri, err := pub.GetId(v)
 	if err != nil {
-		tr.raw.Add("Could not get Add iri: " + err.Error())
+		tr.Log("Could not get Add iri: " + err.Error())
 		return
 	}
 	tr.hookSyncMu.Lock()
@@ -503,10 +519,10 @@ func (tr *TestRunner) LogFederatingAdd(c context.Context, v vocab.ActivityStream
 }
 
 func (tr *TestRunner) LogFederatingRemove(c context.Context, v vocab.ActivityStreamsRemove) {
-	tr.raw.Add("LogFederatingRemove", c, v)
+	tr.Log("LogFederatingRemove", c, v)
 	iri, err := pub.GetId(v)
 	if err != nil {
-		tr.raw.Add("Could not get Remove iri: " + err.Error())
+		tr.Log("Could not get Remove iri: " + err.Error())
 		return
 	}
 	tr.hookSyncMu.Lock()
@@ -526,10 +542,10 @@ func (tr *TestRunner) LogFederatingRemove(c context.Context, v vocab.ActivityStr
 }
 
 func (tr *TestRunner) LogFederatingLike(c context.Context, v vocab.ActivityStreamsLike) {
-	tr.raw.Add("LogFederatingLike", c, v)
+	tr.Log("LogFederatingLike", c, v)
 	iri, err := pub.GetId(v)
 	if err != nil {
-		tr.raw.Add("Could not get Like iri: " + err.Error())
+		tr.Log("Could not get Like iri: " + err.Error())
 		return
 	}
 	tr.hookSyncMu.Lock()
@@ -549,10 +565,10 @@ func (tr *TestRunner) LogFederatingLike(c context.Context, v vocab.ActivityStrea
 }
 
 func (tr *TestRunner) LogFederatingUndo(c context.Context, v vocab.ActivityStreamsUndo) {
-	tr.raw.Add("LogFederatingUndo", c, v)
+	tr.Log("LogFederatingUndo", c, v)
 	iri, err := pub.GetId(v)
 	if err != nil {
-		tr.raw.Add("Could not get Undo iri: " + err.Error())
+		tr.Log("Could not get Undo iri: " + err.Error())
 		return
 	}
 	tr.hookSyncMu.Lock()
@@ -572,10 +588,10 @@ func (tr *TestRunner) LogFederatingUndo(c context.Context, v vocab.ActivityStrea
 }
 
 func (tr *TestRunner) LogFederatingBlock(c context.Context, v vocab.ActivityStreamsBlock) {
-	tr.raw.Add("LogFederatingBlock", c, v)
+	tr.Log("LogFederatingBlock", c, v)
 	iri, err := pub.GetId(v)
 	if err != nil {
-		tr.raw.Add("Could not get Block iri: " + err.Error())
+		tr.Log("Could not get Block iri: " + err.Error())
 		return
 	}
 	tr.hookSyncMu.Lock()
@@ -595,15 +611,15 @@ func (tr *TestRunner) LogFederatingBlock(c context.Context, v vocab.ActivityStre
 }
 
 func (tr *TestRunner) LogFilterForwarding(c context.Context, potentialRecipients []*url.URL, activity pub.Activity, filteredRecipients []*url.URL, err error) {
-	tr.raw.Add("LogFilterForwarding", c, potentialRecipients, activity, filteredRecipients, err)
+	tr.Log("LogFilterForwarding", c, potentialRecipients, activity, filteredRecipients, err)
 }
 
 func (tr *TestRunner) LogGetInbox(c context.Context, r *http.Request, outboxId *url.URL, p vocab.ActivityStreamsOrderedCollectionPage, err error) {
-	tr.raw.Add("LogGetInbox", c, r, outboxId, p, err)
+	tr.Log("LogGetInbox", c, r, outboxId, p, err)
 }
 
 func (tr *TestRunner) LogPubHandlerFuncAuthd(c context.Context, r *http.Request, isASRequest bool, err error, remoteActor *url.URL, authenticated bool, httpSigErr error) {
-	tr.raw.Add("LogHandle Web Request (with HTTP Signature)", c, r, isASRequest, err, remoteActor, authenticated, httpSigErr)
+	tr.Log("LogHandle Web Request (with HTTP Signature)", c, r, isASRequest, err, remoteActor, authenticated, httpSigErr)
 	tr.hookSyncMu.Lock()
 	defer tr.hookSyncMu.Unlock()
 	if tr.httpSigsMustMatchRemoteActor {
@@ -614,7 +630,7 @@ func (tr *TestRunner) LogPubHandlerFuncAuthd(c context.Context, r *http.Request,
 	return
 }
 func (tr *TestRunner) LogPubHandlerFunc(c context.Context, r *http.Request, isASRequest bool, err, httpSigErr error) {
-	tr.raw.Add("LogHandle Web Request (no HTTP Signatures)", c, r, isASRequest, err, httpSigErr)
+	tr.Log("LogHandle Web Request (no HTTP Signatures)", c, r, isASRequest, err, httpSigErr)
 	tr.hookSyncMu.Lock()
 	defer tr.hookSyncMu.Unlock()
 	if tr.httpSigsMustMatchRemoteActor {
