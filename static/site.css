@@ -147,7 +147,7 @@ input[type="checkbox"]:disabled {
 	background: black;
 }
 
-input[type="submit"] {
+input[type="submit"], button {
 	border: 1px solid #f1007e;
 	border-radius: 2px;
 	background: #cfcfcf;
