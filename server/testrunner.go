@@ -602,13 +602,23 @@ func (tr *TestRunner) LogGetInbox(c context.Context, r *http.Request, outboxId *
 	tr.raw.Add("LogGetInbox", c, r, outboxId, p, err)
 }
 
-func (tr *TestRunner) LogPubHandlerFunc(c context.Context, r *http.Request, isASRequest bool, err error, remoteActor *url.URL, authenticated bool, httpSigErr error) {
-	tr.raw.Add("LogHandle Web Request", c, r, isASRequest, err, remoteActor, authenticated, httpSigErr)
+func (tr *TestRunner) LogPubHandlerFuncAuthd(c context.Context, r *http.Request, isASRequest bool, err error, remoteActor *url.URL, authenticated bool, httpSigErr error) {
+	tr.raw.Add("LogHandle Web Request (with HTTP Signature)", c, r, isASRequest, err, remoteActor, authenticated, httpSigErr)
 	tr.hookSyncMu.Lock()
 	defer tr.hookSyncMu.Unlock()
 	if tr.httpSigsMustMatchRemoteActor {
 		matched := tr.ctx.TestRemoteActorID.String() == remoteActor.String()
 		tr.ctx.C = context.WithValue(tr.ctx.C, kHttpSigMatchRemoteActorKeyId, matched)
+		tr.httpSigsMustMatchRemoteActor = false
+	}
+	return
+}
+func (tr *TestRunner) LogPubHandlerFunc(c context.Context, r *http.Request, isASRequest bool, err, httpSigErr error) {
+	tr.raw.Add("LogHandle Web Request (no HTTP Signatures)", c, r, isASRequest, err, httpSigErr)
+	tr.hookSyncMu.Lock()
+	defer tr.hookSyncMu.Unlock()
+	if tr.httpSigsMustMatchRemoteActor {
+		tr.ctx.C = context.WithValue(tr.ctx.C, kHttpSigMatchRemoteActorKeyId, false)
 		tr.httpSigsMustMatchRemoteActor = false
 	}
 	return

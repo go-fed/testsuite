@@ -224,6 +224,10 @@ func (a *Actor) PubHandlerFunc(c context.Context, w http.ResponseWriter, r *http
 	remoteActor, authenticated, httpSigErr := verifyHttpSignatures(c, a.db.hostname, client, r, a.am)
 
 	isASRequest, err = a.h(c, w, r)
-	a.tr.LogPubHandlerFunc(c, r, isASRequest, err, remoteActor, authenticated, httpSigErr)
+	if authenticated {
+		a.tr.LogPubHandlerFuncAuthd(c, r, isASRequest, err, remoteActor, authenticated, httpSigErr)
+	} else {
+		a.tr.LogPubHandlerFunc(c, r, isASRequest, err, httpSigErr)
+	}
 	return
 }
