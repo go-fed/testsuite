@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-fed/activity/pub"
@@ -38,6 +39,11 @@ type Result struct {
 	State       TestResultState
 	SpecKind    TestSpecKind
 	Records     *Recorder
+}
+
+func (r Result) IdName() string {
+	p := strings.NewReplacer(" ", "-", "/", ":", "`", ".")
+	return p.Replace(r.TestName)
 }
 
 type instructionResponseType string

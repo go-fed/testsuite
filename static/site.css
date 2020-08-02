@@ -103,7 +103,7 @@ input[type="text"] {
 	border-color: #f1007e;
 	border-width: 1px;
 	background: #cfcfcf;
-	width: 250px;
+	width: 500px;
 }
 
 input[type="number"] {
@@ -114,7 +114,7 @@ input[type="number"] {
 	border-color: #f1007e;
 	border-width: 1px;
 	background: #cfcfcf;
-	width: 250px;
+	width: 50px;
 }
 
 input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button {
@@ -135,8 +135,6 @@ input[type="checkbox"]::before {
 	content: "✕";
 	color: #f1007e;
 	visibility: hidden;
-	right: 0.02em;
-	top: -0.3em;
 }
 
 input[type="checkbox"]:checked::before {
@@ -155,4 +153,86 @@ input[type="submit"], button {
 
 :focus {
 	outline: 3px solid #f1007e;
+}
+
+.greystatus {
+	background: #8b8b8b;
+	border: 2px solid #101010;
+	padding: 0.2em 1em;
+}
+
+.redstatus {
+	background: #ff8b8b;
+	border: 2px solid #ef1010;
+	padding: 0.2em 1em;
+}
+
+.greenstatus {
+	background: #8bff8b;
+	border: 2px solid #10ef10;
+	padding: 0.2em 1em;
+}
+
+.yellowstatus {
+	background: #ffff8b;
+	border: 2px solid #efef10;
+	padding: 0.2em 1em;
+}
+
+.form {
+	padding: 0.2em 1em;
+	border: 1px solid #f1007e;
+	font-family: 'ConnectionRegular', monospace;
+}
+
+.mono {
+	font-family: 'ConnectionRegular', monospace;
+}
+
+table {
+	table-layout: fixed;
+	border-collapse: collapse;
+	border: 1px solid #f1007e;
+	font-family: 'ConnectionRegular', monospace;
+}
+
+th, td {
+	padding: 0.2em 0.4em;
+	border: 1px dashed #f1007e;
+}
+
+td {
+	font-size: 0.9em;
+}
+
+.greenrow {
+	background: #8bff8b;
+}
+
+.redrow {
+	background: #ff8b8b;
+}
+
+.greyrow {
+	background: #8b8b8b;
+}
+
+details {
+	border: 1px solid #f1007e;
+	margin: 1em 0;
+	padding: 0.2em 1em;
+}
+
+.logentries {
+	font-family: 'ConnectionRegular', monospace;
+}
+
+.logentry {
+	padding: 0 1em;
+	border: 1px dashed #f1007e;
+	margin: 0.2em 0;
+}
+
+.sublogentry {
+	margin-left: 3em;
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -159,7 +160,10 @@ func (ws *WebServer) testStatusHandler(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		ws.testStatus.ExecuteTemplate(w, kSiteTemplateName, state)
+		err := ws.testStatus.ExecuteTemplate(w, kSiteTemplateName, state)
+		if err != nil {
+			log.Println(err)
+		}
 	} else {
 		http.NotFound(w, r)
 	}

@@ -30,12 +30,12 @@ type testBundle struct {
 	ctx             *TestRunnerContext
 	db              *Database
 	handler         pub.HandlerFunc
-	state           *testState
+	state           *TestState
 	stateMu         *sync.RWMutex
 	timer           *time.Timer
 }
 
-type testState struct {
+type TestState struct {
 	ID        string
 	I         Instruction
 	Pending   []TestInfo
@@ -45,8 +45,30 @@ type testState struct {
 	Done      bool
 }
 
-func (t *testState) Clone() *testState {
-	ts := &testState{
+func (t *TestState) nState(state TestResultState) int {
+	n := 0
+	for _, r := range t.Results {
+		if r.State == state {
+			n++
+		}
+	}
+	return n
+}
+
+func (t TestState) NPass() int {
+	return t.nState(TestResultPass)
+}
+
+func (t TestState) NFail() int {
+	return t.nState(TestResultFail)
+}
+
+func (t TestState) NInconclusive() int {
+	return t.nState(TestResultInconclusive)
+}
+
+func (t *TestState) Clone() *TestState {
+	ts := &TestState{
 		Pending:   make([]TestInfo, len(t.Pending)),
 		Completed: make([]TestInfo, len(t.Completed)),
 		Results:   make([]Result, len(t.Results)),
@@ -255,7 +277,7 @@ func (ts *TestServer) HandleWeb(c context.Context, w http.ResponseWriter, r *htt
 	}
 }
 
-func (ts *TestServer) TestState(pathPrefix string) (t testState, ok bool) {
+func (ts *TestServer) TestState(pathPrefix string) (t TestState, ok bool) {
 	var tb testBundle
 	ts.cacheMu.RLock()
 	tb, ok = ts.cache[pathPrefix]
@@ -368,7 +390,7 @@ func (ts *TestServer) newTestBundle(pathPrefix string, c2s, s2s, enableWebfinger
 		pfa:             pfa,
 		ctx:             ctx,
 		db:              db,
-		state: &testState{
+		state: &TestState{
 			ID: testIdFromPathPrefix(pathPrefix),
 		},
 		handler: actor.PubHandlerFunc,

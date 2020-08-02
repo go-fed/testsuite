@@ -1,24 +1,39 @@
 {{define "title"}}ActivityPub Dev -- Test Suite -- Test Status{{end}}
 {{define "body"}}<h1>Test Status: {{.ID}}</h1>
-<p>Status:
 {{if .Done}}
-	<span class="complete">Completed</span>
+	<span class="greystatus">Status: Done</span>
 {{else}}
-	<span class="running">Running</span>
+	<span class="greenstatus">Status: Running</span>
 {{end}}
-</p>
-<p>Test Suite Errors: 
 {{if .Err}}
-	<span class="error">{{.Err.Error}}</span>
+	<span class="redstatus">Error: {{.Err.Error}}</span>
 {{else}}
-	None
+	<span class="greenstatus">No Errors</span>
 {{end}}
-</p>
+{{if lt 0 (len .I.TestName)}}
+	<span class="yellowstatus">Requires Instructions</span>
+{{else}}
+	<span class="greenstatus">No Instructions</span>
+{{end}}
+<span class="greenstatus">Passed: {{.NPass}}</span>
+<span class="greystatus">Inconclusive: {{.NInconclusive}}</span>
+<span class="redstatus">Failed: {{.NFail}}</span>
+<ul>
+	<li><a href="#instructions">Instructions</a></li>
+	<li><a href="#tests">Tests</a>
+		<ul>
+			<li><a href="#pending">Pending</a></li>
+			<li><a href="#results">Results</a></li>
+		</ul>
+	</li>
+	<li><a href="#logs">Logs</a></li>
+</ul>
 
-<h2>Instructions</h2>
+<h2 id="instructions">Instructions</h2>
 {{if lt 0 (len .I.TestName)}}
 	<p>To continue testing, please follow these instructions:</p>
-	<p>Instructions: {{.I.Instructions}}</p>
+	<div class="form">
+	<p class="mono">{{.I.Instructions}}</p>
 <form action="/tests/instructions/{{.ID}}" method="post">
 	{{$has_only_labelonly := true}}
 	{{range $i, $ir := .I.Resp}}
@@ -53,11 +68,12 @@
 	<p><button type="submit" value="Respond">Respond</button></p>
 	{{end}}
 </form>
+</div>
 {{else}}
 	<p>There are no instructions.</p>
 {{end}}
 
-<h2>Tests</h2>
+<h2 id="tests">Tests</h2>
 <table>
 	<thead><tr>
 		<th>Status</th>
@@ -75,7 +91,7 @@
 	</tbody>
 </table>
 
-<h3>Pending</h3>
+<h3 id="pending">Pending</h3>
 {{if eq 0 (len .Pending)}}
 	<p>No pending tests</p>
 {{else}}
@@ -99,7 +115,7 @@
 </table>
 {{end}}
 
-<h3>Test Results</h3>
+<h3 id="results">Results</h3>
 {{if eq 0 (len .Results)}}
 	<p>No test results</p>
 {{else}}
@@ -109,33 +125,38 @@
 		<th>Test Name</th>
 		<th>Kind</th>
 		<th>State</th>
+		<th>Log</th>
 	</tr>
 	</thead>
 	<tbody>
 	{{range $i, $v := .Results}}
-	<tr>
+	<tr class="{{if eq $v.State "Pass"}}greenrow{{else if eq $v.State "Fail"}}redrow{{else}}greyrow{{end}}">
 		<td>{{$v.TestName}}</td>
 		<td>{{$v.SpecKind}}</td>
 		<td>{{$v.State}}</td>
+		<td><a href="#{{$v.IdName}}">Link</a></td>
 	</tr>
 	{{end}}
 	</tbody>
 </table>
 {{end}}
 
-<h2>Test Logs</h2>
+<h2 id="logs">Logs</h2>
 {{if eq 0 (len .Results)}}
 	<p>No test logs</p>
 {{else}}
 	{{range $i, $v := .Results}}
-		<details>
+		<details id="{{$v.IdName}}">
 		<summary>{{$v.TestName}}</summary>
+		<div class="logentries">
 		{{range $i, $e := $v.Records.Entries}}
-			<p>{{$e.T}}: {{$e.Msg}}</p>
+			<div class="logentry"><p>{{$e.T}}: {{$e.Msg}}</p>
 			{{if gt (len $e.M) 0}}
-				<p>{{$e.MString}}</p>
+				<p class="sublogentry">{{$e.MString}}</p>
 			{{end}}
+			</div>
 		{{end}}
+		</div>
 		</details>
 	{{end}}
 {{end}}
