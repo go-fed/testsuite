@@ -10,18 +10,30 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"time"
 
 	"github.com/go-fed/testsuite/server"
+)
+
+const (
+	kCommonTemplate = "common.tmpl"
+	kSiteTemplate   = "site.tmpl"
+	kHomePage       = "home.html"
+	kNewTestPage    = "new_test.html"
+	kTestStatusPage = "test_status.html"
 )
 
 type CommandLineFlags struct {
 	CertFile     *string
 	KeyFile      *string
 	Hostname     *string
-	TemplateGlob *string
+	TemplatesDir *string
+	StaticDir    *string
 	TestTimeout  *time.Duration
 	MaxTests     *int
+	NotifyName   *string
+	NotifyLink   *string
 }
 
 func NewCommandLineFlags() *CommandLineFlags {
@@ -29,9 +41,12 @@ func NewCommandLineFlags() *CommandLineFlags {
 		CertFile:     flag.String("cert", "tls.crt", "Path to certificate public key file"),
 		KeyFile:      flag.String("key", "tls.key", "Path to certificate private key file"),
 		Hostname:     flag.String("host", "", "Host name of this instance (including TLD)"),
-		TemplateGlob: flag.String("glob", "*.tmpl", "Glob matching the Go template files"),
+		TemplatesDir: flag.String("templates", "./templates", "Directory containing the Go template files"),
+		StaticDir:    flag.String("static", "./static", "Directory containing statically-served files"),
 		TestTimeout:  flag.Duration("test_timeout", time.Minute*15, "Maximum time tests will be kept"),
 		MaxTests:     flag.Int("max_tests", 30, "Maximum number of concurrent tests"),
+		NotifyName:   flag.String("notify_name", "", "Name of who to notify"),
+		NotifyLink:   flag.String("notify_link", "", "Contact link to who to notify"),
 	}
 	flag.Parse()
 	if err := c.validate(); err != nil {
@@ -45,8 +60,32 @@ func (c *CommandLineFlags) validate() error {
 		return fmt.Errorf("cert file invalid: %s", *c.CertFile)
 	} else if len(*c.KeyFile) == 0 {
 		return fmt.Errorf("key file invalid: %s", *c.KeyFile)
+	} else if len(*c.NotifyName) == 0 {
+		return fmt.Errorf("notify_name must be provided")
+	} else if len(*c.NotifyLink) == 0 {
+		return fmt.Errorf("notify_link must be provided")
 	}
 	return nil
+}
+
+func (c *CommandLineFlags) templateFilepaths(pageFile string) []string {
+	return []string{
+		filepath.Join(*c.TemplatesDir, kCommonTemplate),
+		filepath.Join(*c.TemplatesDir, kSiteTemplate),
+		filepath.Join(*c.TemplatesDir, pageFile),
+	}
+}
+
+func (c *CommandLineFlags) homeTemplate() (*template.Template, error) {
+	return template.ParseFiles(c.templateFilepaths(kHomePage)...)
+}
+
+func (c *CommandLineFlags) newTestTemplate() (*template.Template, error) {
+	return template.ParseFiles(c.templateFilepaths(kNewTestPage)...)
+}
+
+func (c *CommandLineFlags) testStatusTemplate() (*template.Template, error) {
+	return template.ParseFiles(c.templateFilepaths(kTestStatusPage)...)
 }
 
 func main() {
@@ -71,11 +110,19 @@ func main() {
 		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler), 0),
 	}
 
-	tmpls, err := template.ParseGlob(*c.TemplateGlob)
+	homeTmpl, err := c.homeTemplate()
 	if err != nil {
 		panic(err)
 	}
-	_ = server.NewWebServer(tmpls, httpsServer, *c.Hostname, *c.TestTimeout, *c.MaxTests)
+	newTestTmpl, err := c.newTestTemplate()
+	if err != nil {
+		panic(err)
+	}
+	testStatusTmpl, err := c.testStatusTemplate()
+	if err != nil {
+		panic(err)
+	}
+	_ = server.NewWebServer(homeTmpl, newTestTmpl, testStatusTmpl, httpsServer, *c.Hostname, *c.TestTimeout, *c.MaxTests, *c.NotifyName, *c.NotifyLink, *c.StaticDir)
 
 	redir := &http.Server{
 		Addr:         ":http",

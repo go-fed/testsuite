@@ -1,0 +1,40 @@
+{{define "title"}}ActivityPub Dev -- Unofficial Test Suite -- New Test Suite{{end}}
+{{define "body"}}<h1>Run A New Test Suite</h1>
+<p>To run a new testsuite against your test server, please submit
+the following form. Once you submit the form, you will be taken to
+the test status page. It does not use javascript, so you will need
+to periodically refresh the page until the tests are all terminated,
+or until you are prompted with instructions. When you are presented
+with instructions, the test suite will pause its execution of further
+tests.</p>
+<p>Please note these additional considerations when running a test:</p>
+<ul>
+	<li>There are currently no C2S tests.</li>
+	<li>The test suite will only live for 15 minutes before being
+		garbage collected.</li>
+	<li>There is a known problem with the "Done" button in the
+		one instruction that prompts for it.</li>
+	<li>Early on, a test will prompt you to "Block" a test actor,
+		but that actor will be re-used in later tests. Oops!</li>
+	<li>One or two tests use a 5-second sleep. If you've completed
+		a behavior and see no progress, please be patient!</li>
+</ul>
+<p>To start, you will need a single test Actor ID hosted on your
+server for this test suite to run tests against.</p>
+<form action="/tests/new" method="post">
+	<p><label for="remote_actor_iri">Remote actor ID</label>
+	<input type="text" name="remote_actor_iri" id="remote_actor_iri" required></p>
+	<p><label for="enable_social">Enable C2S Tests</label>
+	<input type="checkbox" name="enable_social" id="enable_social" value="true" disabled></p>
+	<p><label for="enable_federating">Enable S2S Tests</label>
+	<input type="checkbox" name="enable_federating" id="enable_federating" value="true"></p>
+	<p>General Test Options</p>
+	<p><label for="enable_webfinger">Enable Webfinger</label>
+	<input type="checkbox" name="enable_webfinger" id="enable_webfinger" value="true"></p>
+	<p>S2S-Only Test Options</p>
+	<p><label for="maximum_deliver_recursion">Maximum Recursion into Collections for Delivery</label>
+	<input type="number" name="maximum_deliver_recursion" id="maximum_deliver_recursion" min="1" value="1"></p>
+	<p>Ready?</p>
+	<p><input type="submit" value="Start Test"></p>
+</form>
+{{end}}

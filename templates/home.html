@@ -1,0 +1,22 @@
+{{define "title"}}ActivityPub Dev -- Unofficial Test Suite{{end}}
+{{define "body"}}<h1>Unofficial ActivityPub Testsuite</h1>
+<p>This server allows you to run a machine-assisted test suite against
+an ActivityPub application. It is a port of the old official test suite.
+While the old test suite was comprehensive for C2S and S2S, it was mostly
+a questionnaire for the S2S portion. This test suite aims to minimize the
+"on your honor" questions, though it cannot eliminate all of them.</p>
+<p>When you run a test suite, please take notice of the following
+considerations:</p>
+<ul>
+	<li>You run tests <u>only</u> against servers you own</li>
+	<li>You do <u>not</u> use the testsuite for spam &amp; abuse</li>
+	<li>You do <u>not</u> abuse the testsuite server</li>
+</ul>
+<p>As such, usage of these testsuites <b>is monitored</b>.</p>
+<p>If the community cannot be respectful in its usage of this testsuite
+then it will no
+longer be hosted as a freely available resource. To notify of such
+incidents, please reach out to
+<a rel="noreferrer noopener" target="_blank" href="{{.NotifyLink}}">{{.NotifyName}}</a>.</p>
+<p><a href="/tests/new">Let's start a new test</a>.</p>
+{{end}}

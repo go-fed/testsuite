@@ -1,0 +1,47 @@
+{{define "common_top"}}
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>{{template "title"}}</title>
+	<link rel="icon" href="favicon.ico">
+	<link rel="stylesheet" href="/static/site.css">
+	<link rel="stylesheet" media="screen" href="https://fontlibrary.org/face/rawline" type="text/css">
+
+</head>
+<body><div id="container">
+	<header>
+	<nav>
+		<span class="sitename"><a href="/">Testsuite</a></span>
+		<ul>
+			<li><a href="/tests/new">New Test</a></li>
+			<li><a href="/about">About</a></li>
+		</ul>
+	</nav>
+	</header>
+	<div id="footerpusher"><div id="content">
+	<div class="notice">
+		<p>This unofficial testsuite is in alpha. Please file a
+		<a rel="noreferrer noopener" target="_blank" href="https://github.com/go-fed/testsuite/issues">bug report</a>
+		if you encounter an issue.</p>
+	</div>
+{{end}}
+{{define "common_bottom"}}
+	</div></div>
+	<footer>
+		<div>A site with hand-crafted HTML and no javascript, powered by Golang.</div>
+		<div>
+			<a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/">
+				<img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-nc-sa/4.0/88x31.png" />
+			</a>
+			<br />
+			This work is licensed under a
+			<a rel="license noreferrer noopener" target="_blank"
+				href="http://creativecommons.org/licenses/by-nc-sa/4.0/">
+			Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+			License</a>.
+		</div>
+	</footer>
+</div></body>
+</html>
+{{end}}

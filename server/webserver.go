@@ -23,31 +23,39 @@ const (
 	kPathInstructionResponse = "/tests/instructions/"
 	kPathHostMeta            = "/.well-known/host-meta"
 	kPathWebfinger           = "/.well-known/webfinger"
-)
-
-const (
-	TmplHome       = "home.tmpl"
-	TmplNewTest    = "new_test.tmpl"
-	TmplTestStatus = "test_status.tmpl"
+	kPathStatic              = "/static/"
+	kSiteTemplateName        = "site"
 )
 
 type WebServer struct {
-	hostname string
-	tmpl     *template.Template
-	s        *http.Server
-	ts       *TestServer
+	hostname   string
+	notifyName string
+	notifyLink string
+	home       *template.Template
+	newTest    *template.Template
+	testStatus *template.Template
+	s          *http.Server
+	ts         *TestServer
 }
 
-func NewWebServer(tmpl *template.Template,
+func NewWebServer(home *template.Template,
+	newTest *template.Template,
+	testStatus *template.Template,
 	s *http.Server,
 	hostname string,
 	testTimeout time.Duration,
-	maxTests int) *WebServer {
+	maxTests int,
+	notifyName, notifyLink string,
+	staticDir string) *WebServer {
 	ws := &WebServer{
-		hostname: hostname,
-		tmpl:     tmpl,
-		s:        s,
-		ts:       NewTestServer(hostname, kPathPrefixTests, testTimeout, maxTests),
+		hostname:   hostname,
+		notifyName: notifyName,
+		notifyLink: notifyLink,
+		home:       home,
+		newTest:    newTest,
+		testStatus: testStatus,
+		s:          s,
+		ts:         NewTestServer(hostname, kPathPrefixTests, testTimeout, maxTests),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(kPathHome, ws.homepageHandler)
@@ -57,6 +65,7 @@ func NewWebServer(tmpl *template.Template,
 	mux.HandleFunc(kPathInstructionResponse, ws.instructionResponseHandler)
 	mux.HandleFunc(kPathHostMeta, ws.hostMetaHandler)
 	mux.HandleFunc(kPathWebfinger, ws.webfingerHandler)
+	mux.Handle(kPathStatic, ws.staticHandler(staticDir))
 	s.Handler = mux
 	s.RegisterOnShutdown(ws.shutdown)
 	return ws
@@ -68,7 +77,14 @@ func (ws *WebServer) shutdown() {
 
 func (ws *WebServer) homepageHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		ws.tmpl.ExecuteTemplate(w, TmplHome, nil)
+		data := struct {
+			NotifyName string
+			NotifyLink string
+		}{
+			NotifyName: ws.notifyName,
+			NotifyLink: ws.notifyLink,
+		}
+		ws.home.ExecuteTemplate(w, kSiteTemplateName, data)
 	} else {
 		http.NotFound(w, r)
 	}
@@ -76,7 +92,7 @@ func (ws *WebServer) homepageHandler(w http.ResponseWriter, r *http.Request) {
 
 func (ws *WebServer) startTestHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		ws.tmpl.ExecuteTemplate(w, TmplNewTest, nil)
+		ws.newTest.ExecuteTemplate(w, kSiteTemplateName, nil)
 	} else if r.Method == http.MethodPost {
 		remoteActorIRI := r.PostFormValue("remote_actor_iri")
 		testRemoteActorID, err := url.Parse(remoteActorIRI)
@@ -143,7 +159,7 @@ func (ws *WebServer) testStatusHandler(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		ws.tmpl.ExecuteTemplate(w, TmplTestStatus, state)
+		ws.testStatus.ExecuteTemplate(w, kSiteTemplateName, state)
 	} else {
 		http.NotFound(w, r)
 	}
@@ -215,4 +231,9 @@ func (ws *WebServer) webfingerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/jrd+json")
 	w.Write(b)
+}
+
+func (ws *WebServer) staticHandler(dir string) http.Handler {
+	fs := http.FileServer(http.Dir(dir))
+	return http.StripPrefix(kPathStatic, fs)
 }

@@ -1,0 +1,158 @@
+html {
+	height: 100%;
+}
+
+body {
+	margin: 0;
+	padding: 0;
+	height: 100%;
+	font-family: 'RawlineRegular', 'Lucida Grande', sans-serif;
+	font-weight: normal;
+	font-style: normal;
+	background: white;
+	color: black;
+}
+
+#container {
+	min-height: 100%;
+	position: relative;
+}
+
+#footerpusher {
+	padding-bottom: 140px;
+}
+
+.sitename {
+	font-size: 2.7em;
+	margin: auto 0;
+}
+
+.sitename > a {
+	text-decoration: none;
+}
+
+#content {
+	margin: 2em auto 2em auto;
+	width: 72%;
+}
+
+footer {
+	text-align: center;
+	position: absolute;
+	bottom: 0;
+	height: 140px;
+	width: 100%;
+	background: #000000;
+	color: #cfcfcf;
+}
+
+footer > div {
+	margin-top: 1em;
+}
+
+a, a:visited {
+	color: #f1007e;
+}
+
+nav {
+	display: flex;
+	padding: 0.2em 5em;
+	background: #000000;
+}
+
+nav > ul {
+	margin: auto 0;
+	font-size: 2em;
+	padding-inline-start: 1em;
+}
+
+nav > ul > li {
+	display: inline-block;
+	margin: 0 0.4em;
+}
+
+nav > ul > li > a {
+	text-decoration: none;
+	padding: 0 0.2em;
+}
+
+nav > ul > li > a:focus, nav > ul > li > a:hover, nav > ul > li > a:active {
+	text-decoration: underline;
+}
+
+.notice {
+	text-align: center;
+	border-color: #f1007e;
+	border-style: solid;
+	border-width: 1px;
+	border-radius: 3px;
+}
+
+button, input {
+	font-family: inherit;
+	font-size: 100%;
+	appearance: none;
+	-webkit-appearance: none;
+}
+
+input[type="text"] {
+	border-top-style: hidden;
+	border-left-style: hidden;
+	border-right-style: hidden;
+	border-bottom-style: solid;
+	border-color: #f1007e;
+	border-width: 1px;
+	background: #cfcfcf;
+	width: 250px;
+}
+
+input[type="number"] {
+	border-top-style: hidden;
+	border-left-style: hidden;
+	border-right-style: hidden;
+	border-bottom-style: solid;
+	border-color: #f1007e;
+	border-width: 1px;
+	background: #cfcfcf;
+	width: 250px;
+}
+
+input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button {
+	opacity: 1;
+}
+
+input[type="checkbox"] {
+	position: relative;
+	width: 1em;
+	height: 1em;
+	border: 1px solid #f1007e;
+	vertical-align: -0.25em;
+	background: #cfcfcf;
+}
+
+input[type="checkbox"]::before {
+	position: absolute;
+	content: "✕";
+	color: #f1007e;
+	visibility: hidden;
+	right: 0.02em;
+	top: -0.3em;
+}
+
+input[type="checkbox"]:checked::before {
+	visibility: visible;
+}
+
+input[type="checkbox"]:disabled {
+	background: black;
+}
+
+input[type="submit"] {
+	border: 1px solid #f1007e;
+	border-radius: 2px;
+	background: #cfcfcf;
+}
+
+:focus {
+	outline: 3px solid #f1007e;
+}
