@@ -10,9 +10,11 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -32,6 +34,8 @@ type WebServer struct {
 	hostname   string
 	notifyName string
 	notifyLink string
+	logFile    string
+	logFileMu  sync.Mutex
 	home       *template.Template
 	newTest    *template.Template
 	testStatus *template.Template
@@ -47,11 +51,13 @@ func NewWebServer(home *template.Template,
 	testTimeout time.Duration,
 	maxTests int,
 	notifyName, notifyLink string,
-	staticDir string) *WebServer {
+	staticDir string,
+	logFile string) *WebServer {
 	ws := &WebServer{
 		hostname:   hostname,
 		notifyName: notifyName,
 		notifyLink: notifyLink,
+		logFile:    logFile,
 		home:       home,
 		newTest:    newTest,
 		testStatus: testStatus,
@@ -117,7 +123,21 @@ func (ws *WebServer) startTestHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		testNumber := rand.Int()
-		pathPrefix := path.Join(kPathPrefixTests, fmt.Sprintf("%d", testNumber))
+		testNumberStr := fmt.Sprintf("%d", testNumber)
+		pathPrefix := path.Join(kPathPrefixTests, testNumberStr)
+		err = ws.logTestCreation(
+			time.Now().Format(time.RFC3339),
+			testNumberStr,
+			r.RemoteAddr,
+			r.Header.Get("X-Forwarded-For"),
+			r.UserAgent(),
+			testRemoteActorID.String(),
+			c2sStr,
+			s2sStr)
+		if err != nil {
+			http.Error(w, "Internal error preparing the test suite", http.StatusInternalServerError)
+			return
+		}
 		err = ws.ts.StartTest(r.Context(),
 			pathPrefix,
 			c2s,
@@ -240,4 +260,18 @@ func (ws *WebServer) webfingerHandler(w http.ResponseWriter, r *http.Request) {
 func (ws *WebServer) staticHandler(dir string) http.Handler {
 	fs := http.FileServer(http.Dir(dir))
 	return http.StripPrefix(kPathStatic, fs)
+}
+
+func (ws *WebServer) logTestCreation(s ...string) error {
+	ws.logFileMu.Lock()
+	defer ws.logFileMu.Unlock()
+	f, err := os.OpenFile(ws.logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err = f.WriteString(strings.Join(s, ",") + "\n"); err != nil {
+		return err
+	}
+	return nil
 }

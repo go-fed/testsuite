@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
@@ -34,6 +35,7 @@ type CommandLineFlags struct {
 	MaxTests     *int
 	NotifyName   *string
 	NotifyLink   *string
+	LogFile      *string
 }
 
 func NewCommandLineFlags() *CommandLineFlags {
@@ -47,6 +49,7 @@ func NewCommandLineFlags() *CommandLineFlags {
 		MaxTests:     flag.Int("max_tests", 30, "Maximum number of concurrent tests"),
 		NotifyName:   flag.String("notify_name", "", "Name of who to notify"),
 		NotifyLink:   flag.String("notify_link", "", "Contact link to who to notify"),
+		LogFile:      flag.String("logfile", "log.txt", "Log file to be able to audit spam & abuse"),
 	}
 	flag.Parse()
 	if err := c.validate(); err != nil {
@@ -90,6 +93,7 @@ func (c *CommandLineFlags) testStatusTemplate() (*template.Template, error) {
 
 func main() {
 	c := NewCommandLineFlags()
+	rand.Seed(time.Now().Unix())
 
 	tlsConfig := &tls.Config{
 		MinVersion:               tls.VersionTLS12,
@@ -122,7 +126,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	_ = server.NewWebServer(homeTmpl, newTestTmpl, testStatusTmpl, httpsServer, *c.Hostname, *c.TestTimeout, *c.MaxTests, *c.NotifyName, *c.NotifyLink, *c.StaticDir)
+	_ = server.NewWebServer(homeTmpl, newTestTmpl, testStatusTmpl, httpsServer, *c.Hostname, *c.TestTimeout, *c.MaxTests, *c.NotifyName, *c.NotifyLink, *c.StaticDir, *c.LogFile)
 
 	redir := &http.Server{
 		Addr:         ":http",
