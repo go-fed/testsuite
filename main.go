@@ -21,6 +21,7 @@ const (
 	kCommonTemplate = "common.tmpl"
 	kSiteTemplate   = "site.tmpl"
 	kHomePage       = "home.html"
+	kAboutPage      = "about.html"
 	kNewTestPage    = "new_test.html"
 	kTestStatusPage = "test_status.html"
 )
@@ -83,6 +84,10 @@ func (c *CommandLineFlags) homeTemplate() (*template.Template, error) {
 	return template.ParseFiles(c.templateFilepaths(kHomePage)...)
 }
 
+func (c *CommandLineFlags) aboutTemplate() (*template.Template, error) {
+	return template.ParseFiles(c.templateFilepaths(kAboutPage)...)
+}
+
 func (c *CommandLineFlags) newTestTemplate() (*template.Template, error) {
 	return template.ParseFiles(c.templateFilepaths(kNewTestPage)...)
 }
@@ -118,6 +123,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	aboutTmpl, err := c.aboutTemplate()
+	if err != nil {
+		panic(err)
+	}
 	newTestTmpl, err := c.newTestTemplate()
 	if err != nil {
 		panic(err)
@@ -126,7 +135,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	_ = server.NewWebServer(homeTmpl, newTestTmpl, testStatusTmpl, httpsServer, *c.Hostname, *c.TestTimeout, *c.MaxTests, *c.NotifyName, *c.NotifyLink, *c.StaticDir, *c.LogFile)
+	_ = server.NewWebServer(homeTmpl, aboutTmpl, newTestTmpl, testStatusTmpl, httpsServer, *c.Hostname, *c.TestTimeout, *c.MaxTests, *c.NotifyName, *c.NotifyLink, *c.StaticDir, *c.LogFile)
 
 	redir := &http.Server{
 		Addr:         ":http",

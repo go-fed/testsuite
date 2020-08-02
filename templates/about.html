@@ -1,0 +1,27 @@
+{{define "title"}}ActivityPub Dev -- About{{end}}
+{{define "body"}}<h1>About</h1>
+<p>There are
+<a href="https://github.com/w3c/activitypub/issues/311">a</a>
+<a href="https://github.com/w3c/activitypub/issues/337">lot</a>
+<a href="https://github.com/w3c/activitypub/issues/340">of</a>
+<a href="https://github.com/w3c/activitypub/issues/347">duplicate</a>
+<a href="https://github.com/w3c/activitypub/issues/350">issues</a>
+about the official test suite being down. There has been an effort started
+<a href="https://socialhub.activitypub.rocks/t/the-activitypub-test-suite/290">by its author</a>
+on the <a href="https://socialhub.activitypub.rocks/">SocialHub</a> about
+trying to resurrect the test suite, but unfortunately not much progress has
+been made, and folks have tried! As an aside, it is worth joining the
+SocialHub. Back on topic: this test suite attempts to supplement
+the original should it make its way back online.</p>
+<p>This suite is built using the
+<a href="https://go-fed.org/">go-fed library</a> in order to create instanced
+and short-lived ActivityPub actors for test runs. The tests are roughly
+equivalent ports from the official test suite. However, the official test
+suite relied on a lot of questionnaire-style prompts for the S2S federation
+tests. While this unofficial test suite cannot eliminate all of them, a
+solid number have been replaced with machine-assisted tests.</p>
+<p>This is a community resource, please use it kindly.<p>
+<p>Should you need to get in contact with the operator, please reach out
+to
+<a rel="noreferrer noopener" target="_blank" href="{{.NotifyLink}}">{{.NotifyName}}</a>.</p>
+{{end}}

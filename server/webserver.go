@@ -21,6 +21,7 @@ import (
 const (
 	kPathPrefixTests         = "/tests/evaluate/"
 	kPathHome                = "/"
+	kPathAbout               = "/about"
 	kPathTestNew             = "/tests/new"
 	kPathTestState           = "/tests/status/"
 	kPathInstructionResponse = "/tests/instructions/"
@@ -37,6 +38,7 @@ type WebServer struct {
 	logFile    string
 	logFileMu  sync.Mutex
 	home       *template.Template
+	about      *template.Template
 	newTest    *template.Template
 	testStatus *template.Template
 	s          *http.Server
@@ -44,6 +46,7 @@ type WebServer struct {
 }
 
 func NewWebServer(home *template.Template,
+	about *template.Template,
 	newTest *template.Template,
 	testStatus *template.Template,
 	s *http.Server,
@@ -59,6 +62,7 @@ func NewWebServer(home *template.Template,
 		notifyLink: notifyLink,
 		logFile:    logFile,
 		home:       home,
+		about:      about,
 		newTest:    newTest,
 		testStatus: testStatus,
 		s:          s,
@@ -66,6 +70,7 @@ func NewWebServer(home *template.Template,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(kPathHome, ws.homepageHandler)
+	mux.HandleFunc(kPathAbout, ws.aboutPageHandler)
 	mux.HandleFunc(kPathPrefixTests, ws.testRequestHandler)
 	mux.HandleFunc(kPathTestState, ws.testStatusHandler)
 	mux.HandleFunc(kPathTestNew, ws.startTestHandler)
@@ -92,6 +97,21 @@ func (ws *WebServer) homepageHandler(w http.ResponseWriter, r *http.Request) {
 			NotifyLink: ws.notifyLink,
 		}
 		ws.home.ExecuteTemplate(w, kSiteTemplateName, data)
+	} else {
+		http.NotFound(w, r)
+	}
+}
+
+func (ws *WebServer) aboutPageHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		data := struct {
+			NotifyName string
+			NotifyLink string
+		}{
+			NotifyName: ws.notifyName,
+			NotifyLink: ws.notifyLink,
+		}
+		ws.about.ExecuteTemplate(w, kSiteTemplateName, data)
 	} else {
 		http.NotFound(w, r)
 	}
