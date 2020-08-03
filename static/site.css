@@ -182,18 +182,18 @@ input[type="submit"], button {
 .form {
 	padding: 0.2em 1em;
 	border: 1px solid #f1007e;
-	font-family: 'ConnectionRegular', monospace;
+	font-family: 'HackRegular', monospace;
 }
 
 .mono {
-	font-family: 'ConnectionRegular', monospace;
+	font-family: 'HackRegular', monospace;
 }
 
 table {
 	table-layout: fixed;
 	border-collapse: collapse;
 	border: 1px solid #f1007e;
-	font-family: 'ConnectionRegular', monospace;
+	font-family: 'HackRegular', monospace;
 }
 
 th, td {
@@ -224,7 +224,7 @@ details {
 }
 
 .logentries {
-	font-family: 'ConnectionRegular', monospace;
+	font-family: 'HackRegular', monospace;
 }
 
 .logentry {
